@@ -1,0 +1,117 @@
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  timestamp,
+  boolean,
+} from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
+
+// ─── Organizations ───────────────────────────────────────────────
+
+export const organizations = pgTable('organizations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  githubInstallationId: text('github_installation_id').unique(),
+  name: text('name').notNull(),
+  plan: text('plan', { enum: ['free', 'team', 'business'] }).default('free'),
+  stripeCustomerId: text('stripe_customer_id'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+})
+
+export const organizationsRelations = relations(organizations, ({ many }) => ({
+  repositories: many(repositories),
+}))
+
+// ─── Repositories ────────────────────────────────────────────────
+
+export const repositories = pgTable('repositories', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: uuid('org_id')
+    .references(() => organizations.id, { onDelete: 'cascade' })
+    .notNull(),
+  githubRepoId: text('github_repo_id').unique().notNull(),
+  fullName: text('full_name').notNull(), // owner/repo
+  conventionProfile: text('convention_profile'), // YAML config content
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+})
+
+export const repositoriesRelations = relations(repositories, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [repositories.orgId],
+    references: [organizations.id],
+  }),
+  reviews: many(reviews),
+}))
+
+// ─── Reviews ─────────────────────────────────────────────────────
+
+export const reviews = pgTable('reviews', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  repoId: uuid('repo_id')
+    .references(() => repositories.id, { onDelete: 'cascade' })
+    .notNull(),
+  prNumber: integer('pr_number').notNull(),
+  prTitle: text('pr_title'),
+  prAuthor: text('pr_author'),
+  status: text('status', { enum: ['pending', 'processing', 'completed', 'failed'] })
+    .default('pending')
+    .notNull(),
+  tokensInput: integer('tokens_input').default(0).notNull(),
+  tokensOutput: integer('tokens_output').default(0).notNull(),
+  commentsPosted: integer('comments_posted').default(0).notNull(),
+  bugsFound: integer('bugs_found').default(0),
+  score: integer('score'), // 0–100
+  durationMs: integer('duration_ms'),
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at').defaultNow(),
+  completedAt: timestamp('completed_at'),
+})
+
+export const reviewsRelations = relations(reviews, ({ one, many }) => ({
+  repository: one(repositories, {
+    fields: [reviews.repoId],
+    references: [repositories.id],
+  }),
+  comments: many(reviewComments),
+}))
+
+// ─── Review Comments ─────────────────────────────────────────────
+
+export const reviewComments = pgTable('review_comments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  reviewId: uuid('review_id')
+    .references(() => reviews.id, { onDelete: 'cascade' })
+    .notNull(),
+  file: text('file').notNull(),
+  line: integer('line').notNull(),
+  severity: text('severity', {
+    enum: ['bug', 'suggestion', 'nitpick', 'praise'],
+  }).notNull(),
+  message: text('message').notNull(),
+  suggestion: text('suggestion'),
+  createdAt: timestamp('created_at').defaultNow(),
+})
+
+export const reviewCommentsRelations = relations(reviewComments, ({ one }) => ({
+  review: one(reviews, {
+    fields: [reviewComments.reviewId],
+    references: [reviews.id],
+  }),
+}))
+
+// ─── Type Exports ────────────────────────────────────────────────
+
+export type Organization = typeof organizations.$inferSelect
+export type NewOrganization = typeof organizations.$inferInsert
+
+export type Repository = typeof repositories.$inferSelect
+export type NewRepository = typeof repositories.$inferInsert
+
+export type Review = typeof reviews.$inferSelect
+export type NewReview = typeof reviews.$inferInsert
+
+export type ReviewComment = typeof reviewComments.$inferSelect
+export type NewReviewComment = typeof reviewComments.$inferInsert

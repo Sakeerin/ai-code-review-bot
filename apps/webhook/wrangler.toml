@@ -1,0 +1,21 @@
+#:schema node_modules/wrangler/config-schema.json
+
+name = "ai-review-bot-webhook"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# Environment variables (non-secret)
+[vars]
+ENVIRONMENT = "production"
+
+# Secrets are set via `wrangler secret put <KEY>`
+# Required secrets:
+#   GITHUB_APP_ID
+#   GITHUB_APP_PRIVATE_KEY
+#   GITHUB_WEBHOOK_SECRET
+#   TRIGGER_SECRET_KEY
+#   DATABASE_URL
