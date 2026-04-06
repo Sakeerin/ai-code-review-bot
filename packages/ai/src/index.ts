@@ -1,4 +1,11 @@
 import { z } from 'zod'
+import { generateObject } from 'ai'
+import { anthropic } from '@ai-sdk/anthropic'
+import { buildSystemPrompt } from './prompts.js'
+import type { ReviewBotConfig } from './config.js'
+
+export * from './config.js'
+export * from './patch.js'
 
 /**
  * Schema for structured review output from Claude.
@@ -26,15 +33,24 @@ export const ReviewSchema = z.object({
 
 export type ReviewResult = z.infer<typeof ReviewSchema>
 
-// Placeholder — will be implemented in Phase 2
 export async function reviewDiff(
-  _diff: string,
-  _conventionProfile?: string,
-): Promise<ReviewResult> {
-  // TODO: Phase 2 — Claude integration
-  return {
-    comments: [],
-    summary: 'AI review not yet implemented (Phase 2)',
-    score: 0,
+  diffContent: string,
+  config: ReviewBotConfig,
+): Promise<ReviewResult & { tokensUsed: number }> {
+  try {
+    const { object, usage } = await generateObject({
+      model: anthropic('claude-3-5-sonnet-latest'),
+      schema: ReviewSchema,
+      system: buildSystemPrompt(config),
+      prompt: `Please review the following code changes:\n\n${diffContent}`,
+    })
+
+    return {
+      ...object,
+      tokensUsed: usage.totalTokens,
+    }
+  } catch (error) {
+    console.error('Claude API Error:', error)
+    throw error
   }
 }

@@ -22,6 +22,7 @@ export async function handlePullRequest(c: Context<AppEnv>): Promise<Response> {
       number: number
       title: string
       user: { login: string }
+      head: { sha: string; ref: string }
       html_url: string
       additions: number
       deletions: number
@@ -62,6 +63,7 @@ export async function handlePullRequest(c: Context<AppEnv>): Promise<Response> {
     prNumber: pr.number,
     prTitle: pr.title,
     prAuthor: pr.user.login,
+    headSha: pr.head.sha,
   }
 
   console.log('🚀 Dispatching review job:', JSON.stringify(jobPayload))

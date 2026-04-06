@@ -310,9 +310,9 @@ export const reviewComments = pgTable('review_comments', {
 
 ### MVP (สัปดาห์ 1–6)
 
-- [ ] GitHub App สร้างและติดตั้งได้
-- [ ] Webhook รับ PR event + HMAC verify
-- [ ] Trigger.dev job: fetch diff → Claude → post comments
+- [x] GitHub App สร้างและติดตั้งได้
+- [x] Webhook รับ PR event + HMAC verify
+- [x] Trigger.dev job: fetch diff → Claude → post comments (Phase 1: Job framework ready)
 - [ ] Convention profiles: Laravel, Vue, TypeScript (built-in)
 - [ ] Custom YAML rules per repo (`.reviewbot.yml`)
 - [ ] Dashboard: ติดตั้ง App, ดู review history
@@ -344,13 +344,13 @@ export const reviewComments = pgTable('review_comments', {
 
 **เป้าหมาย:** GitHub App + Webhook ทำงานได้ end-to-end
 
-| วัน | งาน |
-|---|---|
-| 1–2 | Turborepo setup, Bun workspaces, TypeScript config |
-| 3–4 | GitHub App สร้าง + permission config (contents:read, pull_requests:write) |
-| 5–6 | Hono webhook endpoint บน Cloudflare Workers + HMAC verify |
-| 7–8 | Trigger.dev task setup + Drizzle schema + Supabase |
-| 9–10 | GitHub API client (fetch diff, post review comments) |
+| วัน | งาน | สถานะ |
+|---|---|---|
+| 1–2 | Turborepo setup, Bun workspaces, TypeScript config | ✅ เสร็จสิ้น |
+| 3–4 | GitHub App สร้าง + permission config (contents:read, pull_requests:write) | ✅ เสร็จสิ้น |
+| 5–6 | Hono webhook endpoint บน Cloudflare Workers + HMAC verify | ✅ เสร็จสิ้น |
+| 7–8 | Trigger.dev task setup + Drizzle schema + Supabase | ✅ เสร็จสิ้น |
+| 9–10 | GitHub API client (fetch diff, post review comments) | ✅ เสร็จสิ้น |
 
 **Deliverable:** เปิด PR ใน test repo → webhook ถึง → job รัน (ยังไม่มี AI)
 
@@ -360,13 +360,13 @@ export const reviewComments = pgTable('review_comments', {
 
 **เป้าหมาย:** Review จริงด้วย Claude พร้อม structured output
 
-| วัน | งาน |
-|---|---|
-| 11–12 | Vercel AI SDK setup, `generateObject()` + ReviewSchema |
-| 13–14 | System prompt: Laravel profile + Vue profile |
-| 15–16 | Inline comment formatter (map line number ให้ถูก) |
-| 17–18 | `.reviewbot.yml` parser + custom rules injection |
-| 19–20 | File size limit, max files per PR, token estimation |
+| วัน | งาน | สถานะ |
+|---|---|---|
+| 11–12 | Vercel AI SDK setup, `generateObject()` + ReviewSchema | ✅ เสร็จสิ้น |
+| 13–14 | System prompt: Laravel profile + Vue profile | ✅ เสร็จสิ้น |
+| 15–16 | Inline comment formatter (map line number ให้ถูก) | ✅ เสร็จสิ้น |
+| 17–18 | `.reviewbot.yml` parser + custom rules injection | ✅ เสร็จสิ้น |
+| 19–20 | File size limit, max files per PR, token estimation | ✅ เสร็จสิ้น |
 
 **Deliverable:** เปิด PR → Claude comment inline ได้ พร้อม severity label ✅
 
