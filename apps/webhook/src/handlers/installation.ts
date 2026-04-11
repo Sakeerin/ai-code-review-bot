@@ -1,11 +1,13 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../middleware/verify-signature.js'
+import { tasks } from '@trigger.dev/sdk/v3'
+import type { SyncInstallationPayload } from '@repo/queue'
 
 /**
  * Handle installation webhook events from GitHub.
  *
- * Tracks when orgs install/uninstall the GitHub App.
- * In Phase 1, we just log the events.
+ * Dispatches a Trigger.dev task to sync org/repo state to the database.
+ * The webhook itself only queues the job (must respond within 10s).
  */
 export async function handleInstallation(c: Context<AppEnv>): Promise<Response> {
   const rawBody = c.get('rawBody')
@@ -25,31 +27,24 @@ export async function handleInstallation(c: Context<AppEnv>): Promise<Response> 
     `🔧 Installation event: ${action} — ${installation.account.login} (ID: ${installation.id})`,
   )
 
+  const syncPayload: SyncInstallationPayload = {
+    action: action as SyncInstallationPayload['action'],
+    installationId: installation.id,
+    accountLogin: installation.account.login,
+    repos: repositories,
+  }
+
   switch (action) {
-    case 'created': {
-      console.log(
-        `✅ App installed by ${installation.account.login}`,
-        `Repos: ${repositories?.map((r) => r.full_name).join(', ') ?? 'none'}`,
-      )
-      // TODO: Create organization + repositories in DB
+    case 'created':
+    case 'deleted':
+      await tasks.trigger('sync-installation', syncPayload)
+      console.log(`🚀 Dispatched sync-installation task (${action})`)
       break
-    }
 
-    case 'deleted': {
-      console.log(`❌ App uninstalled by ${installation.account.login}`)
-      // TODO: Deactivate organization in DB
+    case 'suspend':
+    case 'unsuspend':
+      console.log(`ℹ️ Installation ${action} — no DB sync needed`)
       break
-    }
-
-    case 'suspend': {
-      console.log(`⏸️ App suspended by ${installation.account.login}`)
-      break
-    }
-
-    case 'unsuspend': {
-      console.log(`▶️ App unsuspended by ${installation.account.login}`)
-      break
-    }
 
     default:
       console.log(`ℹ️ Unhandled installation action: ${action}`)

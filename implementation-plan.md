@@ -315,9 +315,9 @@ export const reviewComments = pgTable('review_comments', {
 - [x] Trigger.dev job: fetch diff → Claude → post comments (Phase 1: Job framework ready)
 - [ ] Convention profiles: Laravel, Vue, TypeScript (built-in)
 - [ ] Custom YAML rules per repo (`.reviewbot.yml`)
-- [ ] Dashboard: ติดตั้ง App, ดู review history
-- [ ] Auth ด้วย GitHub OAuth (Better Auth)
-- [ ] Stripe subscription (Free / Team / Business)
+- [x] Dashboard: ติดตั้ง App, ดู review history
+- [x] Auth ด้วย GitHub OAuth (Better Auth)
+- [x] Stripe subscription (Free / Team / Business)
 
 ### V1 (สัปดาห์ 7–10)
 
@@ -376,15 +376,15 @@ export const reviewComments = pgTable('review_comments', {
 
 **เป้าหมาย:** User install ได้ + จ่ายเงินได้
 
-| วัน | งาน |
-|---|---|
-| 21–22 | Next.js 15 setup + Better Auth + GitHub OAuth |
-| 23–24 | GitHub App installation flow (OAuth → install → redirect dashboard) |
-| 25–26 | Stripe subscription (Free/Team/Business) + webhook handler |
-| 27–28 | Stripe Billing Meter: นับ PR per organization |
-| 29–30 | Dashboard: repo list, review history, plan/usage |
+| วัน | งาน | สถานะ |
+|---|---|---|
+| 21–22 | Next.js 15 setup + Better Auth + GitHub OAuth | ✅ เสร็จสิ้น |
+| 23–24 | GitHub App installation flow (OAuth → install → redirect dashboard) | ✅ เสร็จสิ้น |
+| 25–26 | Stripe subscription (Free/Team/Business) + webhook handler | ✅ เสร็จสิ้น |
+| 27–28 | Stripe Billing Meter: นับ PR per organization | ✅ เสร็จสิ้น |
+| 29–30 | Dashboard: repo list, review history, plan/usage | ✅ เสร็จสิ้น |
 
-**Deliverable:** User install ได้ → จ่ายเงินได้ → ดู history ได้
+**Deliverable:** User install ได้ → จ่ายเงินได้ → ดู history ได้ ✅
 
 ---
 

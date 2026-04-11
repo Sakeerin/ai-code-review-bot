@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./auth": "./src/auth.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",
@@ -16,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "better-auth": "^1.6.1",
     "drizzle-orm": "^0.40.0",
     "postgres": "^3.4.0"
   },

@@ -22,3 +22,6 @@ export function createDb(databaseUrl?: string) {
 }
 
 export type Database = ReturnType<typeof createDb>
+
+// Singleton instance — used by Next.js server components and API routes
+export const db = createDb()

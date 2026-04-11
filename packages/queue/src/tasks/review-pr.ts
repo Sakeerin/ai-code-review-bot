@@ -1,8 +1,8 @@
 import { task } from '@trigger.dev/sdk/v3'
 import { createInstallationOctokit, GitHubClient } from '@repo/github'
-import { createDb, reviews, repositories } from '@repo/db'
-import { eq } from 'drizzle-orm'
+import { createDb, reviews, repositories, organizations, eq } from '@repo/db'
 import { parseReviewBotConfig, reviewDiff, getModifiedLines } from '@repo/ai'
+import { reportPRReviewToMeter } from '../lib/stripe-meter.js'
 
 /** Payload type for the PR review task */
 export interface ReviewPRPayload {
@@ -158,14 +158,24 @@ export const reviewPRTask = task({
           prTitle,
           prAuthor,
           status: 'completed',
-          tokensInput: reviewResult.tokensUsed, // Roughly assigning tokens used here
-          tokensOutput: 0, // Currently we only have totalTokens from generateObject
+          tokensInput: reviewResult.tokensUsed,
+          tokensOutput: 0,
           commentsPosted: validComments.length,
           bugsFound,
           score: reviewResult.score,
           completedAt: new Date(),
         })
         console.log('💾 Review saved to DB')
+
+        // ── Stripe Billing Meter ────────────────────────────────
+        const orgRecord = await db
+          .select({ stripeCustomerId: organizations.stripeCustomerId })
+          .from(organizations)
+          .where(eq(organizations.id, repoRecord.orgId))
+          .limit(1)
+          .then((rows) => rows[0])
+
+        await reportPRReviewToMeter(orgRecord?.stripeCustomerId ?? null)
       } else {
         console.log(`⚠️ Repo ${repoFullName} not found in DB. Skipping review record insert.`)
       }
