@@ -5,6 +5,11 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY: string
   GITHUB_WEBHOOK_SECRET: string
 
+  // GitLab integration
+  GITLAB_WEBHOOK_SECRET: string
+  GITLAB_TOKEN: string
+  GITLAB_API_URL: string
+
   // Trigger.dev
   TRIGGER_SECRET_KEY: string
 
@@ -20,6 +25,11 @@ export type GitHubEventType =
   | 'pull_request'
   | 'installation'
   | 'ping'
+  | string
+
+export type GitLabEventType =
+  | 'Merge Request Hook'
+  | 'System Hook'
   | string
 
 /** Pull request webhook payload (simplified) */

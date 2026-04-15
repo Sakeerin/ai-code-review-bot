@@ -30,7 +30,7 @@ export default async function RepositoriesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Repositories</h1>
           {org && (
             <p className="text-sm text-muted-foreground mt-1">
-              {org.name} · {repos.length} repo{repos.length !== 1 ? "s" : ""}
+              {org.name} ยท {repos.length} repo{repos.length !== 1 ? "s" : ""}
             </p>
           )}
         </div>
@@ -51,7 +51,7 @@ export default async function RepositoriesPage() {
       ) : repos.length === 0 ? (
         <div className="border border-border border-dashed rounded-xl p-12 text-center">
           <p className="text-muted-foreground">
-            No repositories found. Make sure the GitHub App has access to your repositories.
+            No repositories found. Make sure your GitHub App or GitLab webhook integration is active.
           </p>
         </div>
       ) : (
@@ -68,30 +68,36 @@ export default async function RepositoriesPage() {
                   {repo.conventionProfile ? (
                     <span className="font-mono text-xs bg-secondary px-1 py-0.5 rounded">
                       {repo.conventionProfile.substring(0, 40)}
-                      {repo.conventionProfile.length > 40 ? "…" : ""}
+                      {repo.conventionProfile.length > 40 ? "..." : ""}
                     </span>
                   ) : (
                     "Default"
                   )}
                 </p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Platform: <span className="capitalize">{repo.provider}</span>
+                </p>
               </div>
               <div className="mt-4 flex items-center justify-between">
                 <span
                   className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                    repo.isActive
-                      ? "bg-green-100 text-green-800"
-                      : "bg-secondary text-muted-foreground"
+                    repo.isActive ? "bg-green-100 text-green-800" : "bg-secondary text-muted-foreground"
                   }`}
                 >
                   {repo.isActive ? "Active" : "Inactive"}
                 </span>
                 <a
-                  href={`https://github.com/${repo.fullName}`}
+                  href={
+                    repo.webUrl ??
+                    (repo.provider === "gitlab"
+                      ? `https://gitlab.com/${repo.fullName}`
+                      : `https://github.com/${repo.fullName}`)
+                  }
                   target="_blank"
                   rel="noreferrer"
                   className="text-sm text-muted-foreground hover:text-foreground hover:underline"
                 >
-                  View on GitHub ↗
+                  View Repository →
                 </a>
               </div>
             </div>

@@ -31,8 +31,11 @@ export const repositories = pgTable('repositories', {
   orgId: uuid('org_id')
     .references(() => organizations.id, { onDelete: 'cascade' })
     .notNull(),
+  provider: text('provider', { enum: ['github', 'gitlab'] }).default('github').notNull(),
   githubRepoId: text('github_repo_id').unique().notNull(),
+  gitlabProjectId: text('gitlab_project_id').unique(),
   fullName: text('full_name').notNull(), // owner/repo
+  webUrl: text('web_url'),
   conventionProfile: text('convention_profile'), // YAML config content
   isActive: boolean('is_active').default(true),
   createdAt: timestamp('created_at').defaultNow(),
@@ -53,9 +56,12 @@ export const reviews = pgTable('reviews', {
   repoId: uuid('repo_id')
     .references(() => repositories.id, { onDelete: 'cascade' })
     .notNull(),
+  provider: text('provider', { enum: ['github', 'gitlab'] }).default('github').notNull(),
   prNumber: integer('pr_number').notNull(),
   prTitle: text('pr_title'),
   prAuthor: text('pr_author'),
+  reviewUrl: text('review_url'),
+  summary: text('summary'),
   status: text('status', { enum: ['pending', 'processing', 'completed', 'failed'] })
     .default('pending')
     .notNull(),

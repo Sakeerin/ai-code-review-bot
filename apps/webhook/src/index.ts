@@ -2,8 +2,10 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { verifyGitHubSignature, type AppEnv } from './middleware/verify-signature.js'
+import { verifyGitLabSignature } from './middleware/verify-gitlab-signature.js'
 import { handlePullRequest } from './handlers/pull-request.js'
 import { handleInstallation } from './handlers/installation.js'
+import { handleMergeRequest } from './handlers/merge-request.js'
 
 // ─── App Setup ──────────────────────────────────────────────────
 
@@ -49,6 +51,27 @@ app.post('/webhook/github', verifyGitHubSignature, async (c) => {
 
     default:
       console.log(`⏭️ Ignoring unhandled event: ${event}`)
+      return c.json({
+        status: 'ignored',
+        event,
+        message: `Event "${event}" is not handled`,
+      })
+  }
+})
+
+app.post('/webhook/gitlab', verifyGitLabSignature, async (c) => {
+  const event = c.req.header('X-Gitlab-Event') ?? 'unknown'
+
+  console.log(`Received GitLab event: ${event}`)
+
+  switch (event) {
+    case 'Merge Request Hook':
+      return handleMergeRequest(c)
+
+    case 'Ping':
+      return c.json({ status: 'pong' })
+
+    default:
       return c.json({
         status: 'ignored',
         event,

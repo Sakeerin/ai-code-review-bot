@@ -5,7 +5,6 @@ import {
   organizations,
   repositories,
   eq,
-  and,
 } from '@repo/db'
 
 export interface SyncInstallationPayload {

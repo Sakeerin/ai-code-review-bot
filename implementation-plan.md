@@ -321,10 +321,10 @@ export const reviewComments = pgTable('review_comments', {
 
 ### V1 (สัปดาห์ 7–10)
 
-- [ ] GitLab Merge Request support
-- [ ] Usage analytics dashboard (token, bugs found, PR score trend)
-- [ ] Slack notification เมื่อ review เสร็จ
-- [ ] Review replay: ดู diff + comment ย้อนหลังใน dashboard
+- [x] GitLab Merge Request support
+- [x] Usage analytics dashboard (token, bugs found, PR score trend)
+- [x] Slack notification integration
+- [x] Review replay UI in dashboard
 - [ ] Rate limiting per plan (enforced ด้วย Cloudflare Workers KV)
 
 ### V2 (Backlog)
@@ -394,10 +394,10 @@ export const reviewComments = pgTable('review_comments', {
 
 | วัน | งาน |
 |---|---|
-| 31–33 | GitLab webhook + MR API integration |
-| 34–35 | Analytics: token usage chart, bugs found trend, PR score |
-| 36–38 | Slack notification integration |
-| 39–40 | Review replay UI ใน dashboard |
+| 31–33 | GitLab webhook + MR API integration | ✅ เสร็จสิ้น |
+| 34–35 | Analytics: token usage chart, bugs found trend, PR score | ✅ เสร็จสิ้น |
+| 36–38 | Slack notification integration | ✅ เสร็จสิ้น |
+| 39–40 | Review replay UI ใน dashboard | ✅ เสร็จสิ้น |
 
 ---
 
@@ -627,3 +627,10 @@ fix/*         — bug fixes
 ---
 
 *เอกสารนี้ควร review ทุก 2 สัปดาห์และอัปเดต status ให้ตรงกับ implementation จริง*
+
+Update 2026-04-12: Phase 4 status
+- [x] GitLab webhook + MR API integration
+- [x] Usage analytics dashboard (token usage, bugs found trend, PR score)
+- [x] Slack notification integration
+- [x] Review replay UI in dashboard
+

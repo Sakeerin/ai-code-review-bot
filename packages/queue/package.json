@@ -13,6 +13,7 @@
     "@trigger.dev/sdk": "^3.3.0",
     "@repo/db": "workspace:*",
     "@repo/github": "workspace:*",
+    "@repo/gitlab": "workspace:*",
     "@repo/ai": "workspace:*",
     "stripe": "^22.0.1"
   },

@@ -84,6 +84,13 @@
         "typescript": "^5.8.0",
       },
     },
+    "packages/gitlab": {
+      "name": "@repo/gitlab",
+      "version": "0.0.1",
+      "devDependencies": {
+        "typescript": "^5.8.0",
+      },
+    },
     "packages/queue": {
       "name": "@repo/queue",
       "version": "0.0.1",
@@ -91,6 +98,7 @@
         "@repo/ai": "workspace:*",
         "@repo/db": "workspace:*",
         "@repo/github": "workspace:*",
+        "@repo/gitlab": "workspace:*",
         "@trigger.dev/sdk": "^3.3.0",
         "stripe": "^22.0.1",
       },
@@ -436,6 +444,8 @@
     "@repo/db": ["@repo/db@workspace:packages/db"],
 
     "@repo/github": ["@repo/github@workspace:packages/github"],
+
+    "@repo/gitlab": ["@repo/gitlab@workspace:packages/gitlab"],
 
     "@repo/queue": ["@repo/queue@workspace:packages/queue"],
 
