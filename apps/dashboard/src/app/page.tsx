@@ -1,13 +1,12 @@
 import { auth } from "@repo/db/auth";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { SignInButton } from "@/components/sign-in-button";
 
 export default async function HomePage() {
   const requestHeaders = await headers();
-  const session = await auth.api.getSession({
-    headers: requestHeaders
-  });
+  const session = await auth.api.getSession({ headers: requestHeaders });
 
   if (session?.user) {
     redirect("/dashboard");
@@ -22,8 +21,14 @@ export default async function HomePage() {
             Automated, context-aware code reviews for modern frameworks.
           </p>
         </div>
-        <div className="flex justify-center">
+        <div className="flex flex-col items-center gap-3">
           <SignInButton />
+          <Link
+            href="/pricing"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4"
+          >
+            View pricing
+          </Link>
         </div>
       </div>
     </main>

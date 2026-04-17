@@ -11,12 +11,31 @@ import { and, count, desc, eq, gte } from "@repo/db"
 // ─── Plan metadata ────────────────────────────────────────────────
 
 export const PLAN_LIMITS = {
-  free:     { prs: 50,       repos: 1,  label: "Free",     price: "$0",  priceMonthly: 0  },
-  team:     { prs: 500,      repos: -1, label: "Team",     price: "$19", priceMonthly: 19 },
-  business: { prs: Infinity, repos: -1, label: "Business", price: "$49", priceMonthly: 49 },
-} as const satisfies Record<string, { prs: number; repos: number; label: string; price: string; priceMonthly: number }>
+  free: {
+    prs: 50, repos: 1, label: "Free",
+    priceMonthly: 0,  priceAnnualPerMonth: 0,  priceAnnualTotal: 0,
+    overagePerPr: 0,  allowsOverage: false,
+  },
+  team: {
+    prs: 500, repos: -1, label: "Team",
+    priceMonthly: 19, priceAnnualPerMonth: 15, priceAnnualTotal: 180,
+    overagePerPr: 0.05, allowsOverage: true,
+  },
+  business: {
+    prs: Infinity, repos: -1, label: "Business",
+    priceMonthly: 49, priceAnnualPerMonth: 39, priceAnnualTotal: 468,
+    overagePerPr: 0.05, allowsOverage: true,
+  },
+} as const satisfies Record<string, {
+  prs: number; repos: number; label: string;
+  priceMonthly: number; priceAnnualPerMonth: number; priceAnnualTotal: number;
+  overagePerPr: number; allowsOverage: boolean;
+}>
 
 export type Plan = keyof typeof PLAN_LIMITS
+export type BillingInterval = "monthly" | "annual"
+
+export const OVERAGE_PRICE_PER_PR = 0.05
 
 // ─── User → Org lookup ───────────────────────────────────────────
 
@@ -65,16 +84,20 @@ export async function getMonthlyReviewCount(orgId: string): Promise<number> {
 }
 
 /**
- * Returns { used, limit, percent } for the current month's PR review quota.
- * limit === -1 means unlimited (Business plan).
+ * Returns quota usage for the current calendar month.
+ * overageCount > 0 only when on a paid plan that allows overage.
  */
 export async function getUsageSummary(org: Organization) {
   const plan = (org.plan ?? "free") as Plan
-  const limit = PLAN_LIMITS[plan].prs
+  const meta = PLAN_LIMITS[plan]
+  const limit = meta.prs
   const used = await getMonthlyReviewCount(org.id)
-  const percent = limit === Infinity ? 0 : Math.min(100, Math.round((used / limit) * 100))
+  const overageCount = limit !== Infinity && used > limit ? used - limit : 0
+  const withinQuota = Math.min(used, limit === Infinity ? used : limit)
+  const percent = limit === Infinity ? 0 : Math.min(100, Math.round((withinQuota / limit) * 100))
+  const overageCost = overageCount * meta.overagePerPr
 
-  return { used, limit, percent }
+  return { used, limit, percent, overageCount, overageCost }
 }
 
 export interface AnalyticsPoint {

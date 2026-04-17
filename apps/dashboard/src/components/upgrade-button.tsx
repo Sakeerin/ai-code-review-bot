@@ -2,14 +2,16 @@
 
 import { useState } from "react"
 import { cn } from "@/lib/utils"
+import type { BillingInterval } from "@/lib/org"
 
 interface UpgradeButtonProps {
   plan: "team" | "business"
+  billing?: BillingInterval
   className?: string
   children?: React.ReactNode
 }
 
-export function UpgradeButton({ plan, className, children }: UpgradeButtonProps) {
+export function UpgradeButton({ plan, billing = "monthly", className, children }: UpgradeButtonProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -20,7 +22,7 @@ export function UpgradeButton({ plan, className, children }: UpgradeButtonProps)
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, billing }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? "Something went wrong")
@@ -30,6 +32,8 @@ export function UpgradeButton({ plan, className, children }: UpgradeButtonProps)
       setLoading(false)
     }
   }
+
+  const label = children ?? `Get ${plan.charAt(0).toUpperCase() + plan.slice(1)}`
 
   return (
     <div>
@@ -41,7 +45,7 @@ export function UpgradeButton({ plan, className, children }: UpgradeButtonProps)
           className,
         )}
       >
-        {loading ? "Redirecting to Stripe…" : (children ?? `Upgrade to ${plan.charAt(0).toUpperCase() + plan.slice(1)}`)}
+        {loading ? "Redirecting to Stripe…" : label}
       </button>
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
     </div>
