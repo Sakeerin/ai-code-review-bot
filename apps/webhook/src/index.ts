@@ -6,6 +6,8 @@ import { verifyGitLabSignature } from './middleware/verify-gitlab-signature.js'
 import { handlePullRequest } from './handlers/pull-request.js'
 import { handleInstallation } from './handlers/installation.js'
 import { handleMergeRequest } from './handlers/merge-request.js'
+import { rateLimit } from './middleware/rate-limit.js'
+import * as Sentry from '@sentry/cloudflare'
 
 // ─── App Setup ──────────────────────────────────────────────────
 
@@ -33,7 +35,7 @@ app.get('/health', (c) => {
 
 // ─── GitHub Webhook Endpoint ────────────────────────────────────
 
-app.post('/webhook/github', verifyGitHubSignature, async (c) => {
+app.post('/webhook/github', verifyGitHubSignature, rateLimit, async (c) => {
   const event = c.req.header('X-GitHub-Event') ?? 'unknown'
 
   console.log(`📩 Received GitHub event: ${event}`)
@@ -59,7 +61,7 @@ app.post('/webhook/github', verifyGitHubSignature, async (c) => {
   }
 })
 
-app.post('/webhook/gitlab', verifyGitLabSignature, async (c) => {
+app.post('/webhook/gitlab', verifyGitLabSignature, rateLimit, async (c) => {
   const event = c.req.header('X-Gitlab-Event') ?? 'unknown'
 
   console.log(`Received GitLab event: ${event}`)
@@ -101,4 +103,14 @@ app.onError((err, c) => {
 
 // ─── Export ─────────────────────────────────────────────────────
 
-export default app
+export default {
+  async fetch(request: Request, env: AppEnv['Bindings'], ctx: ExecutionContext): Promise<Response> {
+    return Sentry.withSentry(
+      {
+        dsn: env.SENTRY_DSN,
+        environment: env.ENVIRONMENT,
+      },
+      () => app.fetch(request, env, ctx)
+    )
+  }
+}

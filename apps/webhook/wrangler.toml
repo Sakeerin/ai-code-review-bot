@@ -22,3 +22,7 @@ ENVIRONMENT = "production"
 #   GITLAB_API_URL
 #   TRIGGER_SECRET_KEY
 #   DATABASE_URL
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "RATE_LIMIT_KV_ID_PLACEHOLDER" # Replace with actual ID when deploying

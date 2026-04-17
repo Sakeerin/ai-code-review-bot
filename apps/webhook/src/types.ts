@@ -16,6 +16,12 @@ export interface Env {
   // Database
   DATABASE_URL: string
 
+  // KV
+  RATE_LIMIT_KV: KVNamespace
+
+  // Observability
+  SENTRY_DSN: string
+
   // Worker env
   ENVIRONMENT: string
 }

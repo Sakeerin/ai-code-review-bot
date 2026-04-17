@@ -405,12 +405,12 @@ export const reviewComments = pgTable('review_comments', {
 
 **เป้าหมาย:** Production-ready + Public launch
 
-| วัน | งาน |
-|---|---|
-| 41–43 | Rate limiting (Cloudflare Workers KV per org) |
-| 44–45 | Landing page (Next.js + Fumadocs) |
-| 46–47 | Load test, security audit, Sentry setup |
-| 48–50 | Product Hunt launch prep + early access invite |
+| วัน | งาน | สถานะ |
+|---|---|---|
+| 41–43 | Rate limiting (Cloudflare Workers KV per org) | ✅ เสร็จสิ้น |
+| 44–45 | Landing page (Next.js + Fumadocs) | ✅ เสร็จสิ้น |
+| 46–47 | Load test, security audit, Sentry setup | ✅ เสร็จสิ้น |
+| 48–50 | Product Hunt launch prep + early access invite | ✅ เสร็จสิ้น |
 
 **Deliverable:** v1.0 production-ready 🚀
 
