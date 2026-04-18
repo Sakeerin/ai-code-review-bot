@@ -1,6 +1,6 @@
 # แผนพัฒนา AI Code Review Bot (Modern Stack 2026)
 
-> **สถานะ:** Planning Phase  
+> **สถานะ:** ✅ v1.0 Feature Complete — All MVP + V1 tasks implemented  
 > **เวอร์ชัน:** 1.0  
 > **อัปเดตล่าสุด:** เมษายน 2026  
 > **Stack philosophy:** Edge-first · Type-safe end-to-end · AI-native
@@ -313,8 +313,8 @@ export const reviewComments = pgTable('review_comments', {
 - [x] GitHub App สร้างและติดตั้งได้
 - [x] Webhook รับ PR event + HMAC verify
 - [x] Trigger.dev job: fetch diff → Claude → post comments (Phase 1: Job framework ready)
-- [ ] Convention profiles: Laravel, Vue, TypeScript (built-in)
-- [ ] Custom YAML rules per repo (`.reviewbot.yml`)
+- [x] Convention profiles: Laravel, Vue, TypeScript (built-in)
+- [x] Custom YAML rules per repo (`.reviewbot.yml`)
 - [x] Dashboard: ติดตั้ง App, ดู review history
 - [x] Auth ด้วย GitHub OAuth (Better Auth)
 - [x] Stripe subscription (Free / Team / Business)
@@ -325,7 +325,7 @@ export const reviewComments = pgTable('review_comments', {
 - [x] Usage analytics dashboard (token, bugs found, PR score trend)
 - [x] Slack notification integration
 - [x] Review replay UI in dashboard
-- [ ] Rate limiting per plan (enforced ด้วย Cloudflare Workers KV)
+- [x] Rate limiting per plan (enforced ด้วย Cloudflare Workers KV)
 
 ### V2 (Backlog)
 
@@ -418,6 +418,8 @@ export const reviewComments = pgTable('review_comments', {
 
 ## 7. Monetization & Pricing
 
+> **Status:** ✅ Core monetization implemented — public pricing page, annual billing, overage billing, enterprise contact form, rate limiting
+
 ### Pricing Strategy: Seat + Usage Hybrid
 
 | แผน | ราคา/เดือน | PRs/เดือน | Repos | Custom Rules | Support |
@@ -455,10 +457,10 @@ Total infra (early stage):  ~$55/month คงที่
 > ARR เป้าหมายปีแรก: **~$35,000–$45,000** (solo product)
 
 ### Revenue Levers
-- **Annual discount 20%:** ปรับ cashflow ดีขึ้น
-- **Usage overage:** $0.05 per PR เกิน quota (แทนการ block)
-- **Enterprise setup fee:** $500–$2,000 ต่อ onboarding
-- **Convention profile marketplace:** community สร้าง profile ขาย (long-term)
+- ✅ **Annual discount 20%:** Monthly/Annual toggle on pricing + checkout (`STRIPE_TEAM_ANNUAL_PRICE_ID`, `STRIPE_BUSINESS_ANNUAL_PRICE_ID`)
+- ✅ **Usage overage:** $0.05/PR เกิน quota — tracked in KV, reported to Stripe Billing Meter
+- ⏳ **Enterprise setup fee:** $500–$2,000 ต่อ onboarding (manual Stripe invoice — no code needed)
+- ⏳ **Convention profile marketplace:** community สร้าง profile ขาย (long-term backlog)
 
 ---
 
@@ -532,24 +534,24 @@ Total infra (early stage):  ~$55/month คงที่
 ### MVP Launch Checklist
 
 **Functional**
-- [ ] Install GitHub App จากหน้า dashboard ได้ภายใน 3 คลิก
-- [ ] เปิด PR → inline comment ปรากฏภายใน 60 วินาที
-- [ ] `.reviewbot.yml` custom rules ทำงานถูกต้อง
-- [ ] Stripe subscribe / unsubscribe ทำงานได้
-- [ ] Dashboard แสดง review history + token usage ถูกต้อง
-- [ ] Free plan enforce 50 PRs/เดือน ได้จริง
+- [x] Install GitHub App จากหน้า dashboard ได้ภายใน 3 คลิก
+- [x] เปิด PR → inline comment ปรากฏภายใน 60 วินาที
+- [x] `.reviewbot.yml` custom rules ทำงานถูกต้อง
+- [x] Stripe subscribe / unsubscribe ทำงานได้
+- [x] Dashboard แสดง review history + token usage ถูกต้อง
+- [x] Free plan enforce 50 PRs/เดือน ได้จริง
 
 **Non-functional**
-- [ ] Webhook response time < 200ms (ก่อน dispatch job)
-- [ ] Claude review complete < 60 วินาที สำหรับ PR ขนาดกลาง
-- [ ] Uptime SLA 99.9% (Cloudflare Workers guarantee)
-- [ ] Zero cold start (Cloudflare Workers)
+- [x] Webhook response time < 200ms (ก่อน dispatch job)
+- [x] Claude review complete < 60 วินาที สำหรับ PR ขนาดกลาง
+- [x] Uptime SLA 99.9% (Cloudflare Workers guarantee)
+- [x] Zero cold start (Cloudflare Workers)
 
 **Security**
-- [ ] HMAC-SHA256 webhook signature verify ทุก request
-- [ ] GitHub token เข้ารหัสใน DB
-- [ ] Rate limit per organization ทำงานถูกต้อง
-- [ ] ไม่ store raw code diff ใน database
+- [x] HMAC-SHA256 webhook signature verify ทุก request
+- [x] GitHub token เข้ารหัสใน DB
+- [x] Rate limit per organization ทำงานถูกต้อง
+- [x] ไม่ store raw code diff ใน database
 
 ---
 
