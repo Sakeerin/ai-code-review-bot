@@ -5,6 +5,7 @@ import {
   integer,
   timestamp,
   boolean,
+  unique,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
@@ -201,3 +202,26 @@ export const userOrganizationsRelations = relations(userOrganizations, ({ one })
 
 export type UserOrganization = typeof userOrganizations.$inferSelect
 export type NewUserOrganization = typeof userOrganizations.$inferInsert
+
+// ─── Stripe Webhook Event Deduplication ──────────────────────────
+// Stores processed Stripe event IDs to prevent replay attacks.
+// Events older than 24h are safe to ignore (Stripe retries stop after ~8h).
+
+export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
+  eventId: text('event_id').primaryKey(),
+  processedAt: timestamp('processed_at').defaultNow().notNull(),
+})
+
+// ─── Rate Limits ─────────────────────────────────────────────────
+// Atomic per-org monthly PR counters. Replaces KV-based rate limiting
+// to eliminate read-increment-write race conditions.
+
+export const rateLimits = pgTable('rate_limits', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgKey: text('org_key').notNull(),     // "gh:<installationId>" or "gl:<namespace>"
+  monthKey: text('month_key').notNull(), // "YYYY-MM"
+  plan: text('plan', { enum: ['free', 'team', 'business'] }).default('free').notNull(),
+  used: integer('used').default(0).notNull(),
+  overageUsed: integer('overage_used').default(0).notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => [unique('rate_limits_org_month').on(t.orgKey, t.monthKey)])

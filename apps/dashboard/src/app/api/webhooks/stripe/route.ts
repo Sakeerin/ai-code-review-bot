@@ -1,16 +1,25 @@
 import { NextResponse } from "next/server"
 import Stripe from "stripe"
 import { db } from "@repo/db/client"
-import { organizations } from "@repo/db/schema"
-import { eq } from "@repo/db"
+import { organizations, stripeWebhookEvents } from "@repo/db/schema"
+import { eq, sql } from "@repo/db"
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2026-03-25.dahlia",
 })
 
 function planFromPriceId(priceId: string | undefined): "team" | "business" | null {
-  if (priceId === process.env.STRIPE_TEAM_PRICE_ID) return "team"
-  if (priceId === process.env.STRIPE_BUSINESS_PRICE_ID) return "business"
+  if (!priceId) return null
+  const teamIds = [
+    process.env.STRIPE_TEAM_PRICE_ID,
+    process.env.STRIPE_TEAM_ANNUAL_PRICE_ID,
+  ].filter(Boolean)
+  const businessIds = [
+    process.env.STRIPE_BUSINESS_PRICE_ID,
+    process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID,
+  ].filter(Boolean)
+  if (teamIds.includes(priceId)) return "team"
+  if (businessIds.includes(priceId)) return "business"
   return null
 }
 
@@ -29,6 +38,15 @@ export async function POST(req: Request) {
     const message = err instanceof Error ? err.message : "Unknown error"
     console.error(`Stripe webhook error: ${message}`)
     return new NextResponse(`Webhook Error: ${message}`, { status: 400 })
+  }
+
+  // Idempotency: reject already-processed events (replay attack prevention)
+  try {
+    await db.insert(stripeWebhookEvents).values({ eventId: event.id })
+  } catch {
+    // Unique constraint violation → event was already processed
+    console.log(`⚠️ Duplicate Stripe event ${event.id} — skipping`)
+    return NextResponse.json({ received: true })
   }
 
   try {
@@ -82,6 +100,11 @@ export async function POST(req: Request) {
     console.error("Error processing Stripe webhook:", error)
     return new NextResponse("Internal Server Error", { status: 500 })
   }
+
+  // Purge processed events older than 24h (Stripe stops retrying after ~8h)
+  db.delete(stripeWebhookEvents)
+    .where(sql`processed_at < NOW() - INTERVAL '24 hours'`)
+    .catch(() => {/* non-fatal */})
 
   return NextResponse.json({ received: true })
 }

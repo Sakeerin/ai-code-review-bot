@@ -10,13 +10,14 @@
     "tail": "wrangler tail"
   },
   "dependencies": {
-    "@repo/queue": "workspace:*",
     "@repo/db": "workspace:*",
-    "hono": "^4.7.0",
+    "@repo/queue": "workspace:*",
+    "@sentry/cloudflare": "^8.54.0",
     "@trigger.dev/sdk": "^3.3.0",
     "drizzle-orm": "^0.40.0",
+    "hono": "^4.7.0",
     "postgres": "^3.4.0",
-    "@sentry/cloudflare": "^8.54.0"
+    "zod": "^4.4.1"
   },
   "devDependencies": {
     "wrangler": "^4.8.0",

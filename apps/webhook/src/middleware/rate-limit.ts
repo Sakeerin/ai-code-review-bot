@@ -1,32 +1,44 @@
 import type { Context, Next } from 'hono'
 import type { AppEnv } from './verify-signature.js'
-import { drizzle } from 'drizzle-orm/postgres-js'
+import { z } from 'zod'
 import postgres from 'postgres'
-import * as schema from '@repo/db/schema'
-import { eq } from 'drizzle-orm'
 
-interface RateLimitData {
-  limit: number
-  used: number
-  overageUsed: number
-  plan: 'free' | 'team' | 'business'
-}
+// ─── Payload schemas (minimal — only fields we actually use) ──────
 
-const PLAN_LIMITS: Record<'free' | 'team' | 'business', number> = {
+const GitHubRateLimitSchema = z.object({
+  action: z.string(),
+  installation: z.object({ id: z.union([z.number(), z.string()]) }).optional(),
+})
+
+const GitLabRateLimitSchema = z.object({
+  object_attributes: z.object({ action: z.string().optional() }).optional(),
+  group: z.object({ path: z.string().optional() }).optional(),
+  project_namespace: z.string().optional(),
+  project: z.object({
+    path_with_namespace: z.string().optional(),
+  }).optional(),
+})
+
+// ─── Plan limits ──────────────────────────────────────────────────
+
+type Plan = 'free' | 'team' | 'business'
+
+const PLAN_LIMITS: Record<Plan, number> = {
   free:     50,
   team:     500,
   business: Infinity,
 }
 
 /**
- * Rate limiting middleware using Cloudflare Workers KV.
+ * Rate limiting middleware using atomic DB counters.
  *
- * - Free: hard block at 50 PRs/month (return 429)
- * - Team: allow up to 500 PRs, then continue with overage tracking ($0.05/PR)
+ * Uses INSERT ... ON CONFLICT DO UPDATE to atomically increment the
+ * per-org monthly counter, eliminating the KV read-increment-write
+ * race condition. KV is kept only for plan caching.
+ *
+ * - Free:     hard block at 50 PRs/month (return 429)
+ * - Team:     allow up to 500 PRs, then track overage ($0.05/PR)
  * - Business: always pass through (unlimited)
- *
- * Overage is tracked in KV and reported to Stripe Billing Meter by the
- * queue task that processes the review.
  */
 export async function rateLimit(c: Context<AppEnv>, next: Next) {
   const event = c.req.header('X-GitHub-Event') || c.req.header('X-Gitlab-Event')
@@ -39,109 +51,156 @@ export async function rateLimit(c: Context<AppEnv>, next: Next) {
   const rawBody = c.get('rawBody')
   if (!rawBody) return next()
 
-  const payload = JSON.parse(rawBody)
-  let orgId: string | undefined
+  let rawPayload: unknown
+  try {
+    rawPayload = JSON.parse(rawBody)
+  } catch {
+    return c.json({ error: 'Invalid JSON payload' }, 400)
+  }
+
+  // ── 1. Validate payload and extract orgKey ─────────────────────
+  let orgKey: string | undefined
 
   if (isGitHub) {
-    const action = payload.action
+    const parsed = GitHubRateLimitSchema.safeParse(rawPayload)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid GitHub payload', details: parsed.error.flatten() }, 400)
+    }
+    const { action, installation } = parsed.data
     if (!['opened', 'synchronize', 'reopened'].includes(action)) return next()
-    orgId = payload.installation?.id?.toString()
+    if (!installation?.id) {
+      console.error('❌ Missing installation.id in GitHub rate-limit check')
+      return c.json({ error: 'Missing installation ID' }, 400)
+    }
+    orgKey = `gh:${installation.id}`
   } else {
-    const action = payload.object_attributes?.action ?? 'update'
+    const parsed = GitLabRateLimitSchema.safeParse(rawPayload)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid GitLab payload', details: parsed.error.flatten() }, 400)
+    }
+    const { object_attributes, group, project_namespace, project } = parsed.data
+    const action = object_attributes?.action ?? 'update'
     if (!['open', 'reopen', 'update'].includes(action)) return next()
-    orgId = payload.group?.path
-      ?? payload.project_namespace
-      ?? payload.project?.path_with_namespace?.split('/')[0]
+
+    const namespace =
+      group?.path ??
+      project_namespace ??
+      project?.path_with_namespace?.split('/')[0]
+
+    if (!namespace) {
+      console.error('❌ Cannot determine GitLab namespace for rate limiting — rejecting')
+      return c.json({ error: 'Cannot determine organization for rate limiting' }, 400)
+    }
+    orgKey = `gl:${namespace}`
   }
 
-  if (!orgId) {
-    console.warn('⚠️ Could not determine orgId for rate limiting, allowing through')
-    return next()
-  }
-
+  // ── 2. Atomic increment via DB (eliminates race condition) ──────
   const monthKey = new Date().toISOString().slice(0, 7)
-  const kvKey = `rl:${isGitHub ? 'gh' : 'gl'}:${orgId}:${monthKey}`
 
-  // ── 1. Load or initialize KV state ────────────────────────────
-  let data = await c.env.RATE_LIMIT_KV.get<RateLimitData>(kvKey, 'json')
+  let result: { used: number; overage_used: number; plan: Plan }
 
-  if (!data) {
-    const plan = await fetchPlan(c.env.DATABASE_URL, isGitHub, orgId, payload)
-    data = { limit: PLAN_LIMITS[plan], used: 0, overageUsed: 0, plan }
-  }
+  try {
+    const sql = postgres(c.env.DATABASE_URL, { max: 1 })
 
-  // ── 2. Business plan: always pass through ─────────────────────
-  if (data.plan === 'business' || data.limit === Infinity) {
-    data.used += 1
-    await saveKv(c.env.RATE_LIMIT_KV, kvKey, data)
+    // Fetch plan from DB on first-ever request this month
+    const plan = await fetchPlan(sql, isGitHub, orgKey, rawPayload as Record<string, unknown>)
+    const limit = PLAN_LIMITS[plan]
+
+    // Atomic upsert: increment used (and overage_used if past limit)
+    const rows = await sql<{ used: number; overage_used: number; plan: Plan }[]>`
+      INSERT INTO rate_limits (org_key, month_key, plan, used, overage_used, updated_at)
+      VALUES (${orgKey}, ${monthKey}, ${plan}, 1, 0, NOW())
+      ON CONFLICT (org_key, month_key) DO UPDATE
+        SET
+          used         = rate_limits.used + 1,
+          overage_used = CASE
+            WHEN rate_limits.used + 1 > ${limit === Infinity ? 999999999 : limit}
+            THEN rate_limits.overage_used + 1
+            ELSE rate_limits.overage_used
+          END,
+          updated_at   = NOW()
+      RETURNING used, overage_used, plan
+    `
+
+    await sql.end()
+    result = rows[0]
+  } catch (err) {
+    // DB unavailable — fail open with a warning to avoid blocking all reviews
+    console.error('⚠️ Rate-limit DB query failed, allowing through:', err)
     return next()
   }
 
-  // ── 3. Free plan: hard block once quota is exhausted ──────────
-  if (data.plan === 'free' && data.used >= data.limit) {
-    console.warn(`🛑 Free plan quota exhausted for ${kvKey}: ${data.used}/${data.limit}`)
+  const { used, overage_used, plan } = result
+  const limit = PLAN_LIMITS[plan]
+
+  // ── 3. Business plan: always pass through ─────────────────────
+  if (plan === 'business' || limit === Infinity) {
+    return next()
+  }
+
+  // ── 4. Free plan: hard block once quota is exhausted ──────────
+  if (plan === 'free' && used > limit) {
+    console.warn(`🛑 Free plan quota exhausted for ${orgKey}: ${used}/${limit}`)
     return c.json({
       error: 'Monthly quota reached',
       plan: 'free',
-      limit: data.limit,
-      message: `You've used all ${data.limit} free PR reviews this month. Upgrade at https://reviewbot.app/pricing to continue.`,
+      limit,
+      message: `You've used all ${limit} free PR reviews this month. Upgrade at https://reviewbot.app/pricing to continue.`,
     }, 429)
   }
 
-  // ── 4. Team plan: allow with overage tracking after 500 ───────
-  data.used += 1
-
-  if (data.used > data.limit) {
-    data.overageUsed += 1
-    console.log(`💳 Overage: ${kvKey} — ${data.overageUsed} PRs over quota (total: ${data.used})`)
+  // ── 5. Team plan: allow with overage tracking after 500 ───────
+  if (overage_used > 0) {
+    console.log(`💳 Overage: ${orgKey} — ${overage_used} PRs over quota (total: ${used})`)
   } else {
-    console.log(`✅ Rate limit: ${kvKey} — ${data.used}/${data.limit}`)
+    console.log(`✅ Rate limit: ${orgKey} — ${used}/${limit}`)
   }
 
-  await saveKv(c.env.RATE_LIMIT_KV, kvKey, data)
   return next()
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────
 
 async function fetchPlan(
-  databaseUrl: string,
+  sql: ReturnType<typeof postgres>,
   isGitHub: boolean,
-  orgId: string,
+  orgKey: string,
   payload: Record<string, unknown>,
-): Promise<'free' | 'team' | 'business'> {
+): Promise<Plan> {
   try {
-    const sql = postgres(databaseUrl)
-    const db = drizzle(sql, { schema })
-
     if (isGitHub) {
-      const org = await db.query.organizations.findFirst({
-        where: eq(schema.organizations.githubInstallationId, orgId),
-      })
-      return (org?.plan as 'free' | 'team' | 'business') || 'free'
+      const installationId = orgKey.replace('gh:', '')
+      const rows = await sql<{ plan: Plan }[]>`
+        SELECT plan FROM organizations
+        WHERE github_installation_id = ${installationId}
+        LIMIT 1
+      `
+      return rows[0]?.plan ?? 'free'
     }
 
-    const repoFullName = (payload as { project?: { path_with_namespace?: string } })
+    const namespace = orgKey.replace('gl:', '')
+    const projectPath = (payload as { project?: { path_with_namespace?: string } })
       .project?.path_with_namespace
-    if (repoFullName) {
-      const repo = await db.query.repositories.findFirst({
-        where: eq(schema.repositories.fullName, repoFullName),
-        with: { organization: true },
-      })
-      return (repo?.organization?.plan as 'free' | 'team' | 'business') || 'free'
+
+    if (projectPath) {
+      const rows = await sql<{ plan: Plan }[]>`
+        SELECT o.plan FROM organizations o
+        INNER JOIN repositories r ON r.org_id = o.id
+        WHERE r.full_name = ${projectPath}
+        LIMIT 1
+      `
+      if (rows[0]) return rows[0].plan
     }
+
+    // Fallback: match by org name / namespace
+    const rows = await sql<{ plan: Plan }[]>`
+      SELECT plan FROM organizations
+      WHERE name = ${namespace}
+      LIMIT 1
+    `
+    return rows[0]?.plan ?? 'free'
   } catch (err) {
     console.error('⚠️ Could not fetch plan from DB, defaulting to free:', err)
+    return 'free'
   }
-  return 'free'
-}
-
-async function saveKv(
-  kv: KVNamespace,
-  key: string,
-  data: RateLimitData,
-) {
-  await kv.put(key, JSON.stringify(data), {
-    expirationTtl: 60 * 60 * 24 * 32, // 32 days
-  })
 }

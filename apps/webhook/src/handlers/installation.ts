@@ -2,24 +2,35 @@ import type { Context } from 'hono'
 import type { AppEnv } from '../middleware/verify-signature.js'
 import { tasks } from '@trigger.dev/sdk/v3'
 import type { SyncInstallationPayload } from '@repo/queue'
+import { z } from 'zod'
 
-/**
- * Handle installation webhook events from GitHub.
- *
- * Dispatches a Trigger.dev task to sync org/repo state to the database.
- * The webhook itself only queues the job (must respond within 10s).
- */
+const InstallationPayloadSchema = z.object({
+  action: z.string(),
+  installation: z.object({
+    id: z.number(),
+    account: z.object({
+      login: z.string(),
+      id: z.number(),
+      type: z.string(),
+    }),
+    app_id: z.number(),
+  }),
+  repositories: z.array(z.object({
+    id: z.number(),
+    full_name: z.string(),
+    private: z.boolean(),
+  })).optional(),
+})
+
 export async function handleInstallation(c: Context<AppEnv>): Promise<Response> {
   const rawBody = c.get('rawBody')
-  const payload = JSON.parse(rawBody) as {
-    action: string
-    installation: {
-      id: number
-      account: { login: string; id: number; type: string }
-      app_id: number
-    }
-    repositories?: Array<{ id: number; full_name: string; private: boolean }>
+
+  const parsed = InstallationPayloadSchema.safeParse(JSON.parse(rawBody))
+  if (!parsed.success) {
+    console.error('❌ Invalid installation payload:', parsed.error.flatten())
+    return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
   }
+  const payload = parsed.data
 
   const { action, installation, repositories } = payload
 

@@ -1,39 +1,35 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../middleware/verify-signature.js'
 import { tasks } from '@trigger.dev/sdk/v3'
+import { z } from 'zod'
 
 /** PR actions we want to trigger a review for */
 const REVIEWABLE_ACTIONS = ['opened', 'synchronize', 'reopened']
 
-/**
- * Handle pull_request webhook events from GitHub.
- *
- * Triggers a review job for:
- * - PR opened
- * - New commits pushed to an open PR (synchronize)
- * - PR reopened
- */
+const PullRequestPayloadSchema = z.object({
+  action: z.string(),
+  pull_request: z.object({
+    number: z.number(),
+    title: z.string(),
+    user: z.object({ login: z.string() }),
+    head: z.object({ sha: z.string(), ref: z.string() }),
+  }),
+  repository: z.object({
+    id: z.number(),
+    full_name: z.string(),
+  }),
+  installation: z.object({ id: z.number() }).optional(),
+})
+
 export async function handlePullRequest(c: Context<AppEnv>): Promise<Response> {
   const rawBody = c.get('rawBody')
-  const payload = JSON.parse(rawBody) as {
-    action: string
-    number: number
-    pull_request: {
-      number: number
-      title: string
-      user: { login: string }
-      head: { sha: string; ref: string }
-      html_url: string
-      additions: number
-      deletions: number
-      changed_files: number
-    }
-    repository: {
-      id: number
-      full_name: string
-    }
-    installation?: { id: number }
+
+  const parsed = PullRequestPayloadSchema.safeParse(JSON.parse(rawBody))
+  if (!parsed.success) {
+    console.error('❌ Invalid pull_request payload:', parsed.error.flatten())
+    return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
   }
+  const payload = parsed.data
 
   const { action, pull_request: pr, repository, installation } = payload
 
