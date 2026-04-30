@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
-import Stripe from "stripe"
+import type Stripe from "stripe"
 import { db } from "@repo/db/client"
 import { organizations, stripeWebhookEvents } from "@repo/db/schema"
 import { eq, sql } from "@repo/db"
+import { createStripe } from "@/lib/stripe"
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: "2026-03-25.dahlia",
-})
+const stripe = createStripe()
 
 function planFromPriceId(priceId: string | undefined): "team" | "business" | null {
   if (!priceId) return null

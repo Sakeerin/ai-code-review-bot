@@ -1,7 +1,6 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../middleware/verify-signature.js'
 import { tasks } from '@trigger.dev/sdk/v3'
-import type { SyncInstallationPayload } from '@repo/queue'
 import { z } from 'zod'
 
 const InstallationPayloadSchema = z.object({
@@ -25,7 +24,14 @@ const InstallationPayloadSchema = z.object({
 export async function handleInstallation(c: Context<AppEnv>): Promise<Response> {
   const rawBody = c.get('rawBody')
 
-  const parsed = InstallationPayloadSchema.safeParse(JSON.parse(rawBody))
+  let rawPayload: unknown
+  try {
+    rawPayload = JSON.parse(rawBody)
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  const parsed = InstallationPayloadSchema.safeParse(rawPayload)
   if (!parsed.success) {
     console.error('❌ Invalid installation payload:', parsed.error.flatten())
     return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
@@ -38,17 +44,15 @@ export async function handleInstallation(c: Context<AppEnv>): Promise<Response> 
     `🔧 Installation event: ${action} — ${installation.account.login} (ID: ${installation.id})`,
   )
 
-  const syncPayload: SyncInstallationPayload = {
-    action: action as SyncInstallationPayload['action'],
-    installationId: installation.id,
-    accountLogin: installation.account.login,
-    repos: repositories,
-  }
-
   switch (action) {
     case 'created':
     case 'deleted':
-      await tasks.trigger('sync-installation', syncPayload)
+      await tasks.trigger('sync-installation', {
+        action,
+        installationId: installation.id,
+        accountLogin: installation.account.login,
+        repos: repositories,
+      })
       console.log(`🚀 Dispatched sync-installation task (${action})`)
       break
 

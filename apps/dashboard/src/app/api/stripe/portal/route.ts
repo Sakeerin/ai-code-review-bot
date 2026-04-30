@@ -1,7 +1,7 @@
 import { auth } from "@repo/db/auth"
 import { NextResponse } from "next/server"
-import Stripe from "stripe"
 import { getUserOrg } from "@/lib/org"
+import { createStripe } from "@/lib/stripe"
 import { headers } from "next/headers"
 
 export async function POST() {
@@ -17,9 +17,7 @@ export async function POST() {
     return NextResponse.json({ error: "No active subscription found." }, { status: 400 })
   }
 
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-    apiVersion: "2026-03-25.dahlia",
-  })
+  const stripe = createStripe()
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 

@@ -24,7 +24,14 @@ const PullRequestPayloadSchema = z.object({
 export async function handlePullRequest(c: Context<AppEnv>): Promise<Response> {
   const rawBody = c.get('rawBody')
 
-  const parsed = PullRequestPayloadSchema.safeParse(JSON.parse(rawBody))
+  let rawPayload: unknown
+  try {
+    rawPayload = JSON.parse(rawBody)
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  const parsed = PullRequestPayloadSchema.safeParse(rawPayload)
   if (!parsed.success) {
     console.error('❌ Invalid pull_request payload:', parsed.error.flatten())
     return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)

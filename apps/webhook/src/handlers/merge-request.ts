@@ -31,7 +31,14 @@ const MergeRequestPayloadSchema = z.object({
 export async function handleMergeRequest(c: Context<GitLabAppEnv>): Promise<Response> {
   const rawBody = c.get('rawBody')
 
-  const parsed = MergeRequestPayloadSchema.safeParse(JSON.parse(rawBody))
+  let rawPayload: unknown
+  try {
+    rawPayload = JSON.parse(rawBody)
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  const parsed = MergeRequestPayloadSchema.safeParse(rawPayload)
   if (!parsed.success) {
     console.error('❌ Invalid merge_request payload:', parsed.error.flatten())
     return c.json({ error: 'Invalid payload', details: parsed.error.flatten() }, 400)
