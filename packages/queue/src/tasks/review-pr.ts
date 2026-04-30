@@ -1,16 +1,8 @@
 import { task } from '@trigger.dev/sdk/v3'
 import { createInstallationOctokit, GitHubClient } from '@repo/github'
-import {
-  createDb,
-  organizations,
-  repositories,
-  reviewComments,
-  reviews,
-  eq,
-} from '@repo/db'
+import { createDb, repositories, eq } from '@repo/db'
 import { parseReviewBotConfig, reviewDiff, getModifiedLines } from '@repo/ai'
-import { reportPRReviewToMeter } from '../lib/stripe-meter.js'
-import { sendSlackReviewNotification } from '../lib/slack.js'
+import { saveReviewAndNotify, formatCommentBody, type PersistedComment } from '../lib/save-review.js'
 
 export interface ReviewPRPayload {
   installationId: number
@@ -35,29 +27,28 @@ export const reviewPRTask = task({
 
     console.log(`Starting review for ${repoFullName}#${prNumber}`)
 
-    const githubAppConfig = {
-      appId: process.env.GITHUB_APP_ID!,
-      privateKey: process.env.GITHUB_APP_PRIVATE_KEY!,
-      webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
-    }
-    const octokit = await createInstallationOctokit(githubAppConfig, installationId)
+    const octokit = await createInstallationOctokit(
+      {
+        appId: process.env.GITHUB_APP_ID!,
+        privateKey: process.env.GITHUB_APP_PRIVATE_KEY!,
+        webhookSecret: process.env.GITHUB_WEBHOOK_SECRET!,
+      },
+      installationId,
+    )
     const githubClient = new GitHubClient(octokit)
     const db = createDb()
 
     const files = await githubClient.getPullRequestFiles(owner, repo, prNumber)
-    const configYml = await githubClient.getFileContent(
-      owner,
-      repo,
-      '.reviewbot.yml',
-      payload.headSha,
-    )
+    const configYml = await githubClient.getFileContent(owner, repo, '.reviewbot.yml', payload.headSha)
     const config = parseReviewBotConfig(configYml)
 
+    // Filter reviewable files — skip removed, binary, ignored, and oversized files
     const reviewableFiles = files
       .filter((file) => {
         if (file.status === 'removed') return false
         if (!file.patch) return false
-        if (file.additions + file.deletions > config.limits.max_file_size_lines) return false
+        // Use actual modified-line count, not additions+deletions (which double-counts)
+        if (getModifiedLines(file.patch).length > config.limits.max_file_size_lines) return false
         if (config.ignore.some((ig) => file.filename.includes(ig.replace(/\*/g, '')))) return false
         return true
       })
@@ -73,42 +64,23 @@ export const reviewPRTask = task({
 
     const reviewResult = await reviewDiff(diffContent, config)
 
-    const validComments: Array<{
-      path: string
-      line: number
-      side: 'RIGHT'
-      body: string
-    }> = []
-    const persistedComments: Array<{
-      file: string
-      line: number
-      severity: 'bug' | 'suggestion' | 'nitpick' | 'praise'
-      message: string
-      suggestion?: string
-    }> = []
+    // Validate each comment against actual modified lines and build payloads
+    const githubComments: Array<{ path: string; line: number; side: 'RIGHT'; body: string }> = []
+    const persistedComments: PersistedComment[] = []
     let bugsFound = 0
 
     for (const comment of reviewResult.comments) {
-      const file = reviewableFiles.find((entry) => entry.filename === comment.file)
+      const file = reviewableFiles.find((f) => f.filename === comment.file)
       if (!file?.patch) continue
+      if (!getModifiedLines(file.patch).includes(comment.line)) continue
 
-      const modifiedLines = getModifiedLines(file.patch)
-      if (!modifiedLines.includes(comment.line)) continue
+      if (comment.severity === 'bug') bugsFound++
 
-      if (comment.severity === 'bug') {
-        bugsFound++
-      }
-
-      let body = `**[${comment.severity.toUpperCase()}]** ${comment.message}`
-      if (comment.suggestion) {
-        body += `\n\n\`\`\`suggestion\n${comment.suggestion}\n\`\`\``
-      }
-
-      validComments.push({
+      githubComments.push({
         path: comment.file,
         line: comment.line,
         side: 'RIGHT',
-        body,
+        body: formatCommentBody(comment.severity, comment.message, comment.suggestion),
       })
       persistedComments.push({
         file: comment.file,
@@ -122,15 +94,10 @@ export const reviewPRTask = task({
     const summaryBody = `### AI Code Review Report\n**Score:** ${reviewResult.score}/100\n\n${reviewResult.summary}`
     const reviewUrl = `https://github.com/${repoFullName}/pull/${prNumber}`
 
-    if (validComments.length > 0) {
-      await githubClient.createReview(owner, repo, prNumber, summaryBody, 'COMMENT', validComments)
+    if (githubComments.length > 0) {
+      await githubClient.createReview(owner, repo, prNumber, summaryBody, 'COMMENT', githubComments)
     } else {
-      await githubClient.createPRComment(
-        owner,
-        repo,
-        prNumber,
-        `${summaryBody}\n\n*No inline comments or suggestions.*`,
-      )
+      await githubClient.createPRComment(owner, repo, prNumber, `${summaryBody}\n\n*No inline comments or suggestions.*`)
     }
 
     const repoRecord = await db.query.repositories.findFirst({
@@ -138,76 +105,35 @@ export const reviewPRTask = task({
     })
 
     if (!repoRecord) {
-      console.log(`Repo ${repoFullName} not found in DB. Skipping DB persistence.`)
-      return {
-        success: true,
-        repoFullName,
-        prNumber,
-        message: 'Review completed without DB persistence',
-      }
+      console.log(`Repo ${repoFullName} not found in DB — skipping persistence.`)
+      return { success: true, repoFullName, prNumber, message: 'Review completed without DB persistence' }
     }
 
-    const [savedReview] = await db
-      .insert(reviews)
-      .values({
+    await saveReviewAndNotify(
+      {
+        db,
         repoId: repoRecord.id,
         provider: 'github',
         prNumber,
         prTitle,
         prAuthor,
         reviewUrl,
-        summary: reviewResult.summary,
-        status: 'completed',
-        tokensInput: reviewResult.tokensUsed,
-        tokensOutput: 0,
-        commentsPosted: validComments.length,
+        reviewResult,
+        persistedComments,
+        commentsPosted: githubComments.length,
         bugsFound,
-        score: reviewResult.score,
-        completedAt: new Date(),
-      })
-      .returning({ id: reviews.id })
+        orgId: repoRecord.orgId,
+      },
+      {
+        provider: 'github',
+        repository: repoFullName,
+        reviewNumber: prNumber,
+        title: prTitle,
+        author: prAuthor,
+        reviewUrl,
+      },
+    )
 
-    if (persistedComments.length > 0) {
-      await db.insert(reviewComments).values(
-        persistedComments.map((comment) => ({
-          reviewId: savedReview.id,
-          file: comment.file,
-          line: comment.line,
-          severity: comment.severity,
-          message: comment.message,
-          suggestion: comment.suggestion,
-        })),
-      )
-    }
-
-    const orgRecord = await db
-      .select({ stripeCustomerId: organizations.stripeCustomerId })
-      .from(organizations)
-      .where(eq(organizations.id, repoRecord.orgId))
-      .limit(1)
-      .then((rows) => rows[0])
-
-    await reportPRReviewToMeter(orgRecord?.stripeCustomerId ?? null)
-    await sendSlackReviewNotification({
-      provider: 'github',
-      repository: repoFullName,
-      reviewNumber: prNumber,
-      title: prTitle,
-      author: prAuthor,
-      score: reviewResult.score,
-      bugsFound,
-      commentsPosted: validComments.length,
-      reviewUrl,
-      summary: reviewResult.summary,
-    }).catch((error) => {
-      console.error('Slack notification failed (non-fatal):', error)
-    })
-
-    return {
-      success: true,
-      repoFullName,
-      prNumber,
-      message: 'AI review executed successfully',
-    }
+    return { success: true, repoFullName, prNumber, message: 'AI review executed successfully' }
   },
 })

@@ -1,0 +1,1 @@
+ALTER TABLE "repositories" ALTER COLUMN "github_repo_id" DROP NOT NULL;

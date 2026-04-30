@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { generateObject } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { createAnthropic } from '@ai-sdk/anthropic'
 import { buildSystemPrompt } from './prompts.js'
 import type { ReviewBotConfig } from './config.js'
 
@@ -33,13 +33,19 @@ export const ReviewSchema = z.object({
 
 export type ReviewResult = z.infer<typeof ReviewSchema>
 
+export interface ReviewTokenUsage {
+  tokensInput: number
+  tokensOutput: number
+}
+
 export async function reviewDiff(
   diffContent: string,
   config: ReviewBotConfig,
-): Promise<ReviewResult & { tokensUsed: number }> {
+): Promise<ReviewResult & ReviewTokenUsage> {
   try {
+    const anthropic = createAnthropic()
     const { object, usage } = await generateObject({
-      model: anthropic('claude-3-5-sonnet-latest'),
+      model: anthropic(process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6'),
       schema: ReviewSchema,
       system: buildSystemPrompt(config),
       prompt: `Please review the following code changes:\n\n${diffContent}`,
@@ -47,7 +53,8 @@ export async function reviewDiff(
 
     return {
       ...object,
-      tokensUsed: usage.totalTokens,
+      tokensInput: usage.promptTokens,
+      tokensOutput: usage.completionTokens,
     }
   } catch (error) {
     console.error('Claude API Error:', error)

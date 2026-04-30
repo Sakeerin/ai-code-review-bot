@@ -33,7 +33,7 @@ export const repositories = pgTable('repositories', {
     .references(() => organizations.id, { onDelete: 'cascade' })
     .notNull(),
   provider: text('provider', { enum: ['github', 'gitlab'] }).default('github').notNull(),
-  githubRepoId: text('github_repo_id').unique().notNull(),
+  githubRepoId: text('github_repo_id').unique(),
   gitlabProjectId: text('gitlab_project_id').unique(),
   fullName: text('full_name').notNull(), // owner/repo
   webUrl: text('web_url'),
