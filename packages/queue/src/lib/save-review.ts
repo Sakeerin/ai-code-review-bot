@@ -10,6 +10,44 @@ import type { ReviewResult, ReviewTokenUsage } from '@repo/ai'
 import { reportPRReviewToMeter } from './stripe-meter.js'
 import { sendSlackReviewNotification, type SlackReviewNotificationPayload } from './slack.js'
 
+export interface FailedReviewInput {
+  db: Database
+  repoId: string
+  provider: 'github' | 'gitlab'
+  prNumber: number
+  prTitle: string | null
+  prAuthor: string | null
+  reviewUrl: string | null
+  errorMessage: string
+}
+
+/**
+ * Persist a failed review record so the dashboard can show it.
+ * Non-throwing — any DB error is logged but not re-raised.
+ */
+export async function saveFailedReview(input: FailedReviewInput): Promise<void> {
+  const { db, repoId, provider, prNumber, prTitle, prAuthor, reviewUrl, errorMessage } = input
+  try {
+    await db.insert(reviews).values({
+      repoId,
+      provider,
+      prNumber,
+      prTitle,
+      prAuthor,
+      reviewUrl,
+      status: 'failed',
+      tokensInput: 0,
+      tokensOutput: 0,
+      commentsPosted: 0,
+      bugsFound: 0,
+      errorMessage: errorMessage.slice(0, 1000), // cap length
+      completedAt: new Date(),
+    })
+  } catch (err) {
+    console.error('Could not save failed review record:', err)
+  }
+}
+
 export interface PersistedComment {
   file: string
   line: number

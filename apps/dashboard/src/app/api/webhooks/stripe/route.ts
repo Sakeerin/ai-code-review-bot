@@ -57,11 +57,19 @@ export async function POST(req: Request) {
         const customerId = session.customer as string
         const plan = (session.metadata?.plan as "team" | "business") ?? "team"
 
-        if (orgId && customerId) {
-          await db
-            .update(organizations)
-            .set({ stripeCustomerId: customerId, plan })
-            .where(eq(organizations.id, orgId))
+        if (!orgId || !customerId) {
+          console.warn(`checkout.session.completed missing orgId or customerId — event ${event.id}`)
+          break // Permanent state — return 200, retrying won't help
+        }
+
+        const updated = await db
+          .update(organizations)
+          .set({ stripeCustomerId: customerId, plan })
+          .where(eq(organizations.id, orgId))
+          .returning({ id: organizations.id })
+
+        if (updated.length === 0) {
+          console.warn(`checkout.session.completed: org ${orgId} not found — acknowledging anyway`)
         }
         break
       }
@@ -72,11 +80,19 @@ export async function POST(req: Request) {
         const priceId = subscription.items.data[0]?.price.id
         const plan = planFromPriceId(priceId)
 
-        if (plan) {
-          await db
-            .update(organizations)
-            .set({ plan })
-            .where(eq(organizations.stripeCustomerId, customerId))
+        if (!plan) {
+          console.warn(`subscription.updated: unrecognized priceId ${priceId} — event ${event.id}`)
+          break // Unknown price — return 200, retrying won't resolve it
+        }
+
+        const updated = await db
+          .update(organizations)
+          .set({ plan })
+          .where(eq(organizations.stripeCustomerId, customerId))
+          .returning({ id: organizations.id })
+
+        if (updated.length === 0) {
+          console.warn(`subscription.updated: no org found for customer ${customerId}`)
         }
         break
       }
@@ -85,10 +101,15 @@ export async function POST(req: Request) {
         const subscription = event.data.object as Stripe.Subscription
         const customerId = subscription.customer as string
 
-        await db
+        const updated = await db
           .update(organizations)
           .set({ plan: "free" })
           .where(eq(organizations.stripeCustomerId, customerId))
+          .returning({ id: organizations.id })
+
+        if (updated.length === 0) {
+          console.warn(`subscription.deleted: no org found for customer ${customerId}`)
+        }
         break
       }
 

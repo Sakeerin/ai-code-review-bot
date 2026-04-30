@@ -38,6 +38,17 @@ export interface ReviewTokenUsage {
   tokensOutput: number
 }
 
+export class ReviewError extends Error {
+  constructor(
+    message: string,
+    public readonly retryable: boolean,
+    public readonly cause?: unknown,
+  ) {
+    super(message)
+    this.name = 'ReviewError'
+  }
+}
+
 export async function reviewDiff(
   diffContent: string,
   config: ReviewBotConfig,
@@ -57,7 +68,27 @@ export async function reviewDiff(
       tokensOutput: usage.completionTokens,
     }
   } catch (error) {
-    console.error('Claude API Error:', error)
-    throw error
+    // Classify errors so callers can decide whether to retry
+    const message = error instanceof Error ? error.message : String(error)
+    const statusCode = (error as { statusCode?: number; status?: number }).statusCode
+      ?? (error as { statusCode?: number; status?: number }).status
+
+    if (statusCode === 429) {
+      // Rate-limited by Anthropic — safe to retry with backoff
+      throw new ReviewError(`Claude API rate limited: ${message}`, true, error)
+    }
+
+    if (statusCode && statusCode >= 500) {
+      // Anthropic server error — safe to retry
+      throw new ReviewError(`Claude API server error (${statusCode}): ${message}`, true, error)
+    }
+
+    if (statusCode === 400 || message.includes('schema') || message.includes('JSON')) {
+      // Bad request / schema mismatch — retrying won't help
+      throw new ReviewError(`Claude API schema/request error: ${message}`, false, error)
+    }
+
+    // Unknown error (network, timeout) — retry
+    throw new ReviewError(`Claude API error: ${message}`, true, error)
   }
 }
