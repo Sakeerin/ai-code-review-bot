@@ -6,7 +6,7 @@ import {
   userOrganizations,
   type Organization,
 } from "@repo/db/schema"
-import { and, count, desc, eq, gte } from "@repo/db"
+import { and, count, eq, gte, sql } from "@repo/db"
 
 // ─── Plan metadata ────────────────────────────────────────────────
 
@@ -151,70 +151,87 @@ export async function getDashboardAnalytics(orgId: string): Promise<DashboardAna
   since.setUTCDate(since.getUTCDate() - 29)
   since.setUTCHours(0, 0, 0, 0)
 
-  const repoRows = await db
-    .select({
-      provider: repositories.provider,
-    })
-    .from(repositories)
-    .where(eq(repositories.orgId, orgId))
+  // Run all three aggregation queries in parallel
+  const [dailyRows, totalsRows, repoRows] = await Promise.all([
+    // Per-day aggregates — returns at most 30 rows instead of loading all reviews
+    db
+      .select({
+        day: sql<string>`DATE_TRUNC('day', ${reviews.createdAt})::date::text`,
+        tokens: sql<number>`SUM(${reviews.tokensInput} + ${reviews.tokensOutput})`,
+        bugs: sql<number>`SUM(${reviews.bugsFound})`,
+        scoreSum: sql<number>`SUM(${reviews.score})`,
+        scoreCount: sql<number>`COUNT(${reviews.score})`,
+      })
+      .from(reviews)
+      .innerJoin(repositories, eq(reviews.repoId, repositories.id))
+      .where(
+        and(
+          eq(repositories.orgId, orgId),
+          eq(reviews.status, "completed"),
+          gte(reviews.createdAt, since),
+        ),
+      )
+      .groupBy(sql`DATE_TRUNC('day', ${reviews.createdAt})`)
+      .orderBy(sql`DATE_TRUNC('day', ${reviews.createdAt})`),
 
-  const reviewRows = await db
-    .select({
-      createdAt: reviews.createdAt,
-      tokensInput: reviews.tokensInput,
-      bugsFound: reviews.bugsFound,
-      score: reviews.score,
-    })
-    .from(reviews)
-    .innerJoin(repositories, eq(reviews.repoId, repositories.id))
-    .where(
-      and(
-        eq(repositories.orgId, orgId),
-        eq(reviews.status, "completed"),
-        gte(reviews.createdAt, since),
+    // 30-day totals — single row
+    db
+      .select({
+        totalReviews: count(),
+        totalTokens: sql<number>`SUM(${reviews.tokensInput} + ${reviews.tokensOutput})`,
+        totalBugs: sql<number>`SUM(${reviews.bugsFound})`,
+        scoreSum: sql<number>`SUM(${reviews.score})`,
+        scoreCount: sql<number>`COUNT(${reviews.score})`,
+      })
+      .from(reviews)
+      .innerJoin(repositories, eq(reviews.repoId, repositories.id))
+      .where(
+        and(
+          eq(repositories.orgId, orgId),
+          eq(reviews.status, "completed"),
+          gte(reviews.createdAt, since),
+        ),
       ),
-    )
-    .orderBy(desc(reviews.createdAt))
 
-  const dateKeys = buildDateSeries(30)
+    // Repo provider counts — usually < 100 repos
+    db
+      .select({ provider: repositories.provider, cnt: count() })
+      .from(repositories)
+      .where(eq(repositories.orgId, orgId))
+      .groupBy(repositories.provider),
+  ])
+
+  const totals = totalsRows[0]
   const tokenMap = new Map<string, number>()
   const bugMap = new Map<string, number>()
   const scoreMap = new Map<string, { sum: number; count: number }>()
 
-  let totalTokens = 0
-  let totalBugs = 0
-  let totalScore = 0
-  let scoredReviews = 0
-
-  for (const review of reviewRows) {
-    if (!review.createdAt) continue
-
-    const key = dayKey(review.createdAt)
-    totalTokens += review.tokensInput
-    totalBugs += review.bugsFound ?? 0
-
-    tokenMap.set(key, (tokenMap.get(key) ?? 0) + review.tokensInput)
-    bugMap.set(key, (bugMap.get(key) ?? 0) + (review.bugsFound ?? 0))
-
-    if (review.score !== null) {
-      totalScore += review.score
-      scoredReviews++
-
-      const existing = scoreMap.get(key) ?? { sum: 0, count: 0 }
-      existing.sum += review.score
-      existing.count += 1
-      scoreMap.set(key, existing)
+  for (const row of dailyRows) {
+    tokenMap.set(row.day, Number(row.tokens ?? 0))
+    bugMap.set(row.day, Number(row.bugs ?? 0))
+    if (Number(row.scoreCount) > 0) {
+      scoreMap.set(row.day, {
+        sum: Number(row.scoreSum ?? 0),
+        count: Number(row.scoreCount),
+      })
     }
   }
 
+  const dateKeys = buildDateSeries(30)
+  const githubRepos = repoRows.find((r) => r.provider === "github")?.cnt ?? 0
+  const gitlabRepos = repoRows.find((r) => r.provider === "gitlab")?.cnt ?? 0
+  const scoreCount = Number(totals?.scoreCount ?? 0)
+
   return {
     totals: {
-      reviews: reviewRows.length,
-      tokens: totalTokens,
-      bugsFound: totalBugs,
-      averageScore: scoredReviews > 0 ? Math.round(totalScore / scoredReviews) : null,
-      githubRepos: repoRows.filter((repo) => repo.provider === "github").length,
-      gitlabRepos: repoRows.filter((repo) => repo.provider === "gitlab").length,
+      reviews: Number(totals?.totalReviews ?? 0),
+      tokens: Number(totals?.totalTokens ?? 0),
+      bugsFound: Number(totals?.totalBugs ?? 0),
+      averageScore: scoreCount > 0
+        ? Math.round(Number(totals?.scoreSum ?? 0) / scoreCount)
+        : null,
+      githubRepos: Number(githubRepos),
+      gitlabRepos: Number(gitlabRepos),
     },
     charts: {
       tokenUsage: dateKeys.map((key) => ({

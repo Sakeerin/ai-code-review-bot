@@ -27,7 +27,7 @@ export const syncInstallationTask = task({
   retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 1000 },
   run: async (payload: SyncInstallationPayload) => {
     const { action, installationId, accountLogin, repos } = payload
-    const db = createDb()
+    const db = createDb(undefined, 2)
 
     console.log(`🔧 sync-installation: ${action} — ${accountLogin} (id: ${installationId})`)
 

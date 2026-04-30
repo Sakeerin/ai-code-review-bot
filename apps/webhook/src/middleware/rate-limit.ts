@@ -102,8 +102,17 @@ export async function rateLimit(c: Context<AppEnv>, next: Next) {
   try {
     const sql = postgres(c.env.DATABASE_URL, { max: 1 })
 
-    // Fetch plan from DB on first-ever request this month
-    const plan = await fetchPlan(sql, isGitHub, orgKey, rawPayload as Record<string, unknown>)
+    // Fetch plan: KV cache first (1h TTL), fallback to DB query
+    const planCacheKey = `plan:${orgKey}`
+    const cachedPlan = await c.env.RATE_LIMIT_KV.get<Plan>(planCacheKey, 'json')
+    const plan = cachedPlan ?? await fetchPlan(sql, isGitHub, orgKey, rawPayload as Record<string, unknown>)
+
+    if (!cachedPlan) {
+      // Fire-and-forget: don't block the request on cache write
+      c.env.RATE_LIMIT_KV.put(planCacheKey, JSON.stringify(plan), { expirationTtl: 3600 })
+        .catch(() => {/* non-fatal */})
+    }
+
     const limit = PLAN_LIMITS[plan]
 
     // Atomic upsert: increment used (and overage_used if past limit)

@@ -6,6 +6,7 @@ import {
   timestamp,
   boolean,
   unique,
+  index,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
@@ -40,7 +41,10 @@ export const repositories = pgTable('repositories', {
   conventionProfile: text('convention_profile'), // YAML config content
   isActive: boolean('is_active').default(true),
   createdAt: timestamp('created_at').defaultNow(),
-})
+}, (t) => [
+  index('repositories_org_id_idx').on(t.orgId),
+  index('repositories_full_name_idx').on(t.fullName),
+])
 
 export const repositoriesRelations = relations(repositories, ({ one, many }) => ({
   organization: one(organizations, {
@@ -75,7 +79,14 @@ export const reviews = pgTable('reviews', {
   errorMessage: text('error_message'),
   createdAt: timestamp('created_at').defaultNow(),
   completedAt: timestamp('completed_at'),
-})
+}, (t) => [
+  index('reviews_repo_id_idx').on(t.repoId),
+  index('reviews_status_idx').on(t.status),
+  index('reviews_created_at_idx').on(t.createdAt),
+  // Composite index for the primary analytics query pattern:
+  // WHERE repo_id = ? AND status = 'completed' AND created_at >= ?
+  index('reviews_analytics_idx').on(t.repoId, t.status, t.createdAt),
+])
 
 export const reviewsRelations = relations(reviews, ({ one, many }) => ({
   repository: one(repositories, {
@@ -187,7 +198,10 @@ export const userOrganizations = pgTable('user_organizations', {
     .references(() => organizations.id, { onDelete: 'cascade' }),
   role: text('role', { enum: ['owner', 'member'] }).default('owner').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
-})
+}, (t) => [
+  index('user_orgs_user_id_idx').on(t.userId),
+  index('user_orgs_org_id_idx').on(t.orgId),
+])
 
 export const userOrganizationsRelations = relations(userOrganizations, ({ one }) => ({
   organization: one(organizations, {

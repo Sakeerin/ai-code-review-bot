@@ -36,7 +36,7 @@ export const reviewPRTask = task({
       installationId,
     )
     const githubClient = new GitHubClient(octokit)
-    const db = createDb()
+    const db = createDb(undefined, 2)
 
     const files = await githubClient.getPullRequestFiles(owner, repo, prNumber)
     const configYml = await githubClient.getFileContent(owner, repo, '.reviewbot.yml', payload.headSha)

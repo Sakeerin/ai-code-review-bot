@@ -29,7 +29,7 @@ export const reviewMergeRequestTask = task({
     maxTimeoutInMs: 30000,
   },
   run: async (payload: ReviewMergeRequestPayload) => {
-    const db = createDb()
+    const db = createDb(undefined, 2)
     const gitlabClient = new GitLabClient({
       baseUrl: process.env.GITLAB_API_URL ?? 'https://gitlab.com/api/v4',
       token: process.env.GITLAB_TOKEN!,
