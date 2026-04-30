@@ -18,6 +18,7 @@ export const organizations = pgTable('organizations', {
   name: text('name').notNull(),
   plan: text('plan', { enum: ['free', 'team', 'business'] }).default('free'),
   stripeCustomerId: text('stripe_customer_id'),
+  slackWebhookUrl: text('slack_webhook_url'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 })

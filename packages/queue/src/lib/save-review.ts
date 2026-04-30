@@ -118,7 +118,7 @@ export async function saveReviewAndNotify(
   }
 
   const orgRecord = await db
-    .select({ stripeCustomerId: organizations.stripeCustomerId })
+    .select({ stripeCustomerId: organizations.stripeCustomerId, slackWebhookUrl: organizations.slackWebhookUrl })
     .from(organizations)
     .where(eq(organizations.id, orgId))
     .limit(1)
@@ -132,7 +132,7 @@ export async function saveReviewAndNotify(
     bugsFound,
     commentsPosted,
     summary: reviewResult.summary,
-  }).catch((err) => {
+  }, orgRecord?.slackWebhookUrl).catch((err) => {
     console.error('Slack notification failed (non-fatal):', err)
   })
 }

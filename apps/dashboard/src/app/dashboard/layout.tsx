@@ -39,6 +39,9 @@ export default async function DashboardLayout({
           <Link href="/dashboard/billing" className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium">
             Billing & Usage
           </Link>
+          <Link href="/dashboard/settings" className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium">
+            Settings
+          </Link>
         </nav>
         <div className="p-4 border-t border-border">
           <LogoutButton />

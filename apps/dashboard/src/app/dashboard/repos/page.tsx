@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { auth } from "@repo/db/auth"
 import { db } from "@repo/db/client"
 import { repositories } from "@repo/db/schema"
@@ -86,19 +87,27 @@ export default async function RepositoriesPage() {
                 >
                   {repo.isActive ? "Active" : "Inactive"}
                 </span>
-                <a
-                  href={
-                    repo.webUrl ??
-                    (repo.provider === "gitlab"
-                      ? `https://gitlab.com/${repo.fullName}`
-                      : `https://github.com/${repo.fullName}`)
-                  }
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-muted-foreground hover:text-foreground hover:underline"
-                >
-                  View Repository →
-                </a>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href={`/dashboard/repos/${repo.id}`}
+                    className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    Settings
+                  </Link>
+                  <a
+                    href={
+                      repo.webUrl ??
+                      (repo.provider === "gitlab"
+                        ? `https://gitlab.com/${repo.fullName}`
+                        : `https://github.com/${repo.fullName}`)
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    View Repository →
+                  </a>
+                </div>
               </div>
             </div>
           ))}

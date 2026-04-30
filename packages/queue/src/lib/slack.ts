@@ -13,8 +13,9 @@ export interface SlackReviewNotificationPayload {
 
 export async function sendSlackReviewNotification(
   payload: SlackReviewNotificationPayload,
+  orgWebhookUrl?: string | null,
 ): Promise<void> {
-  const webhookUrl = process.env.SLACK_WEBHOOK_URL
+  const webhookUrl = orgWebhookUrl ?? process.env.SLACK_WEBHOOK_URL
   if (!webhookUrl) return
 
   const reviewLabel = payload.provider === 'gitlab' ? 'Merge Request' : 'Pull Request'
