@@ -13,7 +13,7 @@ import { sendSlackReviewNotification, type SlackReviewNotificationPayload } from
 export interface FailedReviewInput {
   db: Database
   repoId: string
-  provider: 'github' | 'gitlab'
+  provider: 'github' | 'gitlab' | 'bitbucket'
   prNumber: number
   prTitle: string | null
   prAuthor: string | null
@@ -59,7 +59,7 @@ export interface PersistedComment {
 export interface SaveReviewInput {
   db: Database
   repoId: string
-  provider: 'github' | 'gitlab'
+  provider: 'github' | 'gitlab' | 'bitbucket'
   prNumber: number
   prTitle: string | null
   prAuthor: string | null

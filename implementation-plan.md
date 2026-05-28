@@ -1,8 +1,8 @@
 # แผนพัฒนา AI Code Review Bot (Modern Stack 2026)
 
-> **สถานะ:** ✅ v1.0 Feature Complete — All MVP + V1 tasks implemented  
-> **เวอร์ชัน:** 1.0  
-> **อัปเดตล่าสุด:** เมษายน 2026  
+> **สถานะ:** ✅ v2.0 Feature Complete — All MVP + V1 + V2 tasks implemented  
+> **เวอร์ชัน:** 2.0  
+> **อัปเดตล่าสุด:** พฤษภาคม 2026  
 > **Stack philosophy:** Edge-first · Type-safe end-to-end · AI-native
 
 ---
@@ -329,12 +329,12 @@ export const reviewComments = pgTable('review_comments', {
 
 ### V2 (Backlog)
 
-- [ ] Self-hosted Docker image (สำหรับ Enterprise ที่ sensitive เรื่อง code privacy)
-- [ ] AI-powered convention profile generator (วิเคราะห์ repo แล้วแนะนำ rules)
-- [ ] PR trend report (email weekly)
-- [ ] Bitbucket support
-- [ ] VS Code extension (inline suggestion ก่อน push)
-- [ ] MCP Server สำหรับ integrate กับ IDE
+- [x] Self-hosted Docker image (สำหรับ Enterprise ที่ sensitive เรื่อง code privacy)
+- [x] AI-powered convention profile generator (วิเคราะห์ repo แล้วแนะนำ rules)
+- [x] PR trend report (email weekly)
+- [x] Bitbucket support
+- [x] VS Code extension (inline suggestion ก่อน push)
+- [x] MCP Server สำหรับ integrate กับ IDE
 
 ---
 
@@ -635,4 +635,12 @@ Update 2026-04-12: Phase 4 status
 - [x] Usage analytics dashboard (token usage, bugs found trend, PR score)
 - [x] Slack notification integration
 - [x] Review replay UI in dashboard
+
+Update 2026-05-28: V2 (Backlog) — all 6 features implemented
+- [x] Self-hosted Docker: `Dockerfile.webhook`, `Dockerfile.dashboard`, `docker-compose.yml`, `.env.example` updated
+- [x] AI Profile Generator: `packages/ai/src/profile-generator.ts` + `POST /api/repos/[repoId]/generate-profile`
+- [x] Weekly Email Report: `packages/queue/src/lib/email.ts` + `packages/queue/src/tasks/weekly-email-report.ts` (schedules every Monday 09:00 UTC via Trigger.dev), schema: `emailReportEnabled`/`emailReportRecipients` on organizations
+- [x] Bitbucket: `packages/bitbucket/` client, `apps/webhook/src/handlers/bitbucket-pr.ts`, `packages/queue/src/tasks/review-bitbucket-pr.ts`, schema `bitbucketRepoId` + provider enum extended
+- [x] MCP Server: `apps/mcp-server/src/index.ts` — tools: `list_reviews`, `get_review`, `generate_profile`, `review_diff`, `repo_stats`
+- [x] VS Code Extension: `apps/vscode-extension/` — commands: Review File, Review Selection, Clear; shows diagnostics inline; `POST /api/review/diff` endpoint added
 

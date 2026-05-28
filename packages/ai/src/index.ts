@@ -6,6 +6,7 @@ import type { ReviewBotConfig } from './config.js'
 
 export * from './config.js'
 export * from './patch.js'
+export * from './profile-generator.js'
 
 /**
  * Schema for structured review output from Claude.

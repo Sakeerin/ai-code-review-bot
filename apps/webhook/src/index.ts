@@ -3,9 +3,11 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { verifyGitHubSignature, type AppEnv } from './middleware/verify-signature.js'
 import { verifyGitLabSignature } from './middleware/verify-gitlab-signature.js'
+import { verifyBitbucketSignature } from './middleware/verify-bitbucket-signature.js'
 import { handlePullRequest } from './handlers/pull-request.js'
 import { handleInstallation } from './handlers/installation.js'
 import { handleMergeRequest } from './handlers/merge-request.js'
+import { handleBitbucketPR } from './handlers/bitbucket-pr.js'
 import { rateLimit } from './middleware/rate-limit.js'
 import * as Sentry from '@sentry/cloudflare'
 
@@ -72,6 +74,25 @@ app.post('/webhook/gitlab', verifyGitLabSignature, rateLimit, async (c) => {
 
     case 'Ping':
       return c.json({ status: 'pong' })
+
+    default:
+      return c.json({
+        status: 'ignored',
+        event,
+        message: `Event "${event}" is not handled`,
+      })
+  }
+})
+
+app.post('/webhook/bitbucket', verifyBitbucketSignature, rateLimit, async (c) => {
+  const event = c.req.header('X-Event-Key') ?? 'unknown'
+
+  console.log(`Received Bitbucket event: ${event}`)
+
+  switch (event) {
+    case 'pullrequest:created':
+    case 'pullrequest:updated':
+      return handleBitbucketPR(c)
 
     default:
       return c.json({

@@ -19,6 +19,9 @@ export const organizations = pgTable('organizations', {
   plan: text('plan', { enum: ['free', 'team', 'business'] }).default('free'),
   stripeCustomerId: text('stripe_customer_id'),
   slackWebhookUrl: text('slack_webhook_url'),
+  // Weekly email report settings (V2)
+  emailReportEnabled: boolean('email_report_enabled').default(false),
+  emailReportRecipients: text('email_report_recipients'), // comma-separated
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 })
@@ -34,9 +37,10 @@ export const repositories = pgTable('repositories', {
   orgId: uuid('org_id')
     .references(() => organizations.id, { onDelete: 'cascade' })
     .notNull(),
-  provider: text('provider', { enum: ['github', 'gitlab'] }).default('github').notNull(),
+  provider: text('provider', { enum: ['github', 'gitlab', 'bitbucket'] }).default('github').notNull(),
   githubRepoId: text('github_repo_id').unique(),
   gitlabProjectId: text('gitlab_project_id').unique(),
+  bitbucketRepoId: text('bitbucket_repo_id').unique(), // workspace/repo_slug
   fullName: text('full_name').notNull(), // owner/repo
   webUrl: text('web_url'),
   conventionProfile: text('convention_profile'), // YAML config content
@@ -62,7 +66,7 @@ export const reviews = pgTable('reviews', {
   repoId: uuid('repo_id')
     .references(() => repositories.id, { onDelete: 'cascade' })
     .notNull(),
-  provider: text('provider', { enum: ['github', 'gitlab'] }).default('github').notNull(),
+  provider: text('provider', { enum: ['github', 'gitlab', 'bitbucket'] }).default('github').notNull(),
   prNumber: integer('pr_number').notNull(),
   prTitle: text('pr_title'),
   prAuthor: text('pr_author'),

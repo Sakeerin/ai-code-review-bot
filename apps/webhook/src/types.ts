@@ -10,6 +10,11 @@ export interface Env {
   GITLAB_TOKEN: string
   GITLAB_API_URL: string
 
+  // Bitbucket integration (V2)
+  BITBUCKET_WEBHOOK_SECRET: string
+  BITBUCKET_USERNAME: string
+  BITBUCKET_APP_PASSWORD: string
+
   // Trigger.dev
   TRIGGER_SECRET_KEY: string
 

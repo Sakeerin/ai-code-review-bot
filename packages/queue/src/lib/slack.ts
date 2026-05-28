@@ -1,5 +1,5 @@
 export interface SlackReviewNotificationPayload {
-  provider: 'github' | 'gitlab'
+  provider: 'github' | 'gitlab' | 'bitbucket'
   repository: string
   reviewNumber: number
   title: string | null
@@ -19,6 +19,7 @@ export async function sendSlackReviewNotification(
   if (!webhookUrl) return
 
   const reviewLabel = payload.provider === 'gitlab' ? 'Merge Request' : 'Pull Request'
+  // bitbucket uses "Pull Request" same as GitHub
   const response = await fetch(webhookUrl, {
     method: 'POST',
     headers: {

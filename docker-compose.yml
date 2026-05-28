@@ -1,0 +1,94 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: reviewbot
+      POSTGRES_USER: reviewbot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reviewbot_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U reviewbot -d reviewbot']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Webhook Service ─────────────────────────────────────────────
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    restart: unless-stopped
+    ports:
+      - '${WEBHOOK_PORT:-3000}:3000'
+    environment:
+      DATABASE_URL: postgresql://reviewbot:${POSTGRES_PASSWORD:-reviewbot_secret}@postgres:5432/reviewbot
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      GITLAB_WEBHOOK_SECRET: ${GITLAB_WEBHOOK_SECRET:-}
+      GITLAB_TOKEN: ${GITLAB_TOKEN:-}
+      GITLAB_API_URL: ${GITLAB_API_URL:-https://gitlab.com/api/v4}
+      BITBUCKET_WEBHOOK_SECRET: ${BITBUCKET_WEBHOOK_SECRET:-}
+      BITBUCKET_USERNAME: ${BITBUCKET_USERNAME:-}
+      BITBUCKET_APP_PASSWORD: ${BITBUCKET_APP_PASSWORD:-}
+      TRIGGER_SECRET_KEY: ${TRIGGER_SECRET_KEY}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Dashboard ───────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    restart: unless-stopped
+    ports:
+      - '${DASHBOARD_PORT:-3001}:3001'
+    environment:
+      DATABASE_URL: postgresql://reviewbot:${POSTGRES_PASSWORD:-reviewbot_secret}@postgres:5432/reviewbot
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_METER_ID: ${STRIPE_METER_ID:-}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+      AXIOM_TOKEN: ${AXIOM_TOKEN:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── DB Migrations (one-shot, exits after running) ────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    command: ['bun', 'run', '--cwd', 'packages/db', 'migrate']
+    environment:
+      DATABASE_URL: postgresql://reviewbot:${POSTGRES_PASSWORD:-reviewbot_secret}@postgres:5432/reviewbot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+volumes:
+  postgres_data:

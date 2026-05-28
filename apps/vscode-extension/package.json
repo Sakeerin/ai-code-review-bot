@@ -1,0 +1,99 @@
+{
+  "name": "ai-review-bot",
+  "displayName": "AI Review Bot",
+  "description": "Inline AI code review suggestions powered by Claude — before you push",
+  "version": "0.1.0",
+  "publisher": "ai-review-bot",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other", "Linters"],
+  "keywords": ["ai", "code review", "claude", "typescript", "laravel"],
+  "activationEvents": [
+    "onCommand:reviewbot.reviewFile",
+    "onCommand:reviewbot.reviewSelection",
+    "onCommand:reviewbot.clearDiagnostics",
+    "onCommand:reviewbot.configure"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "reviewbot.reviewFile",
+        "title": "AI Review Bot: Review Current File",
+        "icon": "$(search)"
+      },
+      {
+        "command": "reviewbot.reviewSelection",
+        "title": "AI Review Bot: Review Selected Code",
+        "icon": "$(search)"
+      },
+      {
+        "command": "reviewbot.clearDiagnostics",
+        "title": "AI Review Bot: Clear All Review Comments"
+      },
+      {
+        "command": "reviewbot.configure",
+        "title": "AI Review Bot: Configure Settings"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "reviewbot.reviewSelection",
+          "when": "editorHasSelection",
+          "group": "AIReviewBot"
+        },
+        {
+          "command": "reviewbot.reviewFile",
+          "group": "AIReviewBot"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Review Bot",
+      "properties": {
+        "reviewbot.apiUrl": {
+          "type": "string",
+          "default": "https://reviewbot.app",
+          "description": "Base URL of your AI Review Bot dashboard (change for self-hosted)"
+        },
+        "reviewbot.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your AI Review Bot API key (from Dashboard → Settings → API Keys)"
+        },
+        "reviewbot.profile": {
+          "type": "string",
+          "default": "typescript",
+          "enum": ["typescript", "laravel", "vue", "laravel-vue"],
+          "description": "Convention profile to use for reviews"
+        },
+        "reviewbot.language": {
+          "type": "string",
+          "default": "en",
+          "enum": ["en", "th"],
+          "description": "Language for review comments"
+        },
+        "reviewbot.showOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically review the file on save"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "watch": "tsc -watch -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.8.0"
+  }
+}
