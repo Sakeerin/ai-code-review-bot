@@ -1,7 +1,5 @@
 import { z } from 'zod'
-import { generateObject } from 'ai'
-import { createAnthropic } from '@ai-sdk/anthropic'
-import { ReviewError } from './index.js'
+import { generateObjectWithFallback } from './providers.js'
 
 export interface RepoFileSample {
   path: string
@@ -39,12 +37,9 @@ export async function generateConventionProfile(
     .map((f) => `### ${f.path}\n\`\`\`\n${f.content.slice(0, 800)}\n\`\`\``)
     .join('\n\n')
 
-  try {
-    const anthropic = createAnthropic()
-    const { object } = await generateObject({
-      model: anthropic(process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6'),
-      schema: GeneratedProfileSchema,
-      system: `You are an expert code convention analyzer.
+  const { object } = await generateObjectWithFallback<GeneratedProfile>({
+    schema: GeneratedProfileSchema,
+    system: `You are an expert code convention analyzer.
 Analyze the provided code samples from the repository "${repoFullName}" and generate a .reviewbot.yml configuration.
 
 Detect:
@@ -55,21 +50,11 @@ Detect:
 
 Output practical, actionable rules that match the patterns you actually see in the code.
 Keep rules focused on issues that would cause real problems, not style preferences.`,
-      prompt: `Repository: ${repoFullName}\n\nFile samples:\n\n${fileSummary}`,
-    })
+    prompt: `Repository: ${repoFullName}\n\nFile samples:\n\n${fileSummary}`,
+  })
 
-    const yaml = buildYaml(object)
-    return { profile: object, yaml }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const statusCode = (error as { statusCode?: number; status?: number }).statusCode
-      ?? (error as { statusCode?: number; status?: number }).status
-
-    if (statusCode === 429 || (statusCode && statusCode >= 500)) {
-      throw new ReviewError(`Claude API error during profile generation: ${message}`, true, error)
-    }
-    throw new ReviewError(`Profile generation failed: ${message}`, false, error)
-  }
+  const yaml = buildYaml(object)
+  return { profile: object, yaml }
 }
 
 function buildYaml(p: GeneratedProfile): string {

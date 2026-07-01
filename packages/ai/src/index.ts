@@ -1,12 +1,12 @@
 import { z } from 'zod'
-import { generateObject } from 'ai'
-import { createAnthropic } from '@ai-sdk/anthropic'
 import { buildSystemPrompt } from './prompts.js'
 import type { ReviewBotConfig } from './config.js'
+import { generateObjectWithFallback } from './providers.js'
 
 export * from './config.js'
 export * from './patch.js'
 export * from './profile-generator.js'
+export * from './providers.js'
 
 /**
  * Schema for structured review output from Claude.
@@ -37,59 +37,29 @@ export type ReviewResult = z.infer<typeof ReviewSchema>
 export interface ReviewTokenUsage {
   tokensInput: number
   tokensOutput: number
+  /** Which AI provider produced this review (e.g. "anthropic", "openai", "gemini"). */
+  provider?: string
 }
 
-export class ReviewError extends Error {
-  constructor(
-    message: string,
-    public readonly retryable: boolean,
-    public readonly cause?: unknown,
-  ) {
-    super(message)
-    this.name = 'ReviewError'
-  }
-}
-
+/**
+ * Review a diff using the first available AI provider. Providers are tried in
+ * order (see `AI_PROVIDER_ORDER`) and the pipeline automatically falls back to
+ * the next one when a provider is unconfigured, out of quota, or failing.
+ */
 export async function reviewDiff(
   diffContent: string,
   config: ReviewBotConfig,
 ): Promise<ReviewResult & ReviewTokenUsage> {
-  try {
-    const anthropic = createAnthropic()
-    const { object, usage } = await generateObject({
-      model: anthropic(process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6'),
-      schema: ReviewSchema,
-      system: buildSystemPrompt(config),
-      prompt: `Please review the following code changes:\n\n${diffContent}`,
-    })
+  const { object, usage, provider } = await generateObjectWithFallback<ReviewResult>({
+    schema: ReviewSchema,
+    system: buildSystemPrompt(config),
+    prompt: `Please review the following code changes:\n\n${diffContent}`,
+  })
 
-    return {
-      ...object,
-      tokensInput: usage.promptTokens,
-      tokensOutput: usage.completionTokens,
-    }
-  } catch (error) {
-    // Classify errors so callers can decide whether to retry
-    const message = error instanceof Error ? error.message : String(error)
-    const statusCode = (error as { statusCode?: number; status?: number }).statusCode
-      ?? (error as { statusCode?: number; status?: number }).status
-
-    if (statusCode === 429) {
-      // Rate-limited by Anthropic — safe to retry with backoff
-      throw new ReviewError(`Claude API rate limited: ${message}`, true, error)
-    }
-
-    if (statusCode && statusCode >= 500) {
-      // Anthropic server error — safe to retry
-      throw new ReviewError(`Claude API server error (${statusCode}): ${message}`, true, error)
-    }
-
-    if (statusCode === 400 || message.includes('schema') || message.includes('JSON')) {
-      // Bad request / schema mismatch — retrying won't help
-      throw new ReviewError(`Claude API schema/request error: ${message}`, false, error)
-    }
-
-    // Unknown error (network, timeout) — retry
-    throw new ReviewError(`Claude API error: ${message}`, true, error)
+  return {
+    ...object,
+    tokensInput: usage.promptTokens,
+    tokensOutput: usage.completionTokens,
+    provider,
   }
 }

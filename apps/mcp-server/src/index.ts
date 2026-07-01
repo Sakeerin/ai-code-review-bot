@@ -18,8 +18,7 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import { z } from 'zod'
-import { createDb, repositories, reviews, reviewComments, eq, and, desc, gte, lte, sql } from '@repo/db'
+import { createDb, repositories, reviews, eq, and, desc, gte, sql } from '@repo/db'
 import { reviewDiff, parseReviewBotConfig, generateConventionProfile } from '@repo/ai'
 import type { RepoFileSample } from '@repo/ai'
 

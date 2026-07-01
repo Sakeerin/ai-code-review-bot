@@ -108,7 +108,8 @@ docker compose up -d postgres
 bun run db:migrate
 
 # 5) ใส่ค่า env ขั้นต่ำที่จำเป็น (ดูหัวข้อ 4)
-#    - ANTHROPIC_API_KEY, DATABASE_URL, BETTER_AUTH_SECRET, GITHUB_CLIENT_ID/SECRET
+#    - DATABASE_URL, BETTER_AUTH_SECRET, GITHUB_CLIENT_ID/SECRET
+#    - AI provider อย่างน้อย 1 เจ้า: OPENAI_API_KEY หรือ ANTHROPIC_API_KEY หรือ GEMINI_API_KEY
 
 # 6) รันทุก app พร้อมกัน
 bun run dev
@@ -118,7 +119,9 @@ bun run dev
 - Dashboard → http://localhost:3000 (Next.js dev)
 - Webhook (Wrangler dev) → ดูพอร์ตที่ terminal แสดง (ปกติ http://localhost:8787)
 
-> 💡 **ค่า env ขั้นต่ำสำหรับ dev:** ไม่จำเป็นต้องครบทุกตัว — Stripe, Slack, Sentry, Axiom, GitLab, Bitbucket จะ skip เองอย่างนุ่มนวลถ้าไม่ได้ตั้งค่า (โค้ดเช็ค env ก่อนทำงานเสมอ) ตัวที่ "ต้องมี" จริง ๆ คือ `DATABASE_URL` + `ANTHROPIC_API_KEY` + auth (`BETTER_AUTH_SECRET`, GitHub OAuth)
+> 💡 **ค่า env ขั้นต่ำสำหรับ dev:** ไม่จำเป็นต้องครบทุกตัว — Stripe, Slack, Sentry, Axiom, GitLab, Bitbucket จะ skip เองอย่างนุ่มนวลถ้าไม่ได้ตั้งค่า (โค้ดเช็ค env ก่อนทำงานเสมอ) ตัวที่ "ต้องมี" จริง ๆ คือ `DATABASE_URL` + AI provider อย่างน้อย 1 เจ้า + auth (`BETTER_AUTH_SECRET`, GitHub OAuth)
+
+> 🤖 **รองรับหลาย AI provider พร้อม fallback อัตโนมัติ:** ตั้งค่าได้หลายเจ้า (Anthropic / OpenAI / Gemini) ระบบจะเลือกใช้ตามลำดับใน `AI_PROVIDER_ORDER` และ **ข้ามไปเจ้าถัดไปอัตโนมัติ** เมื่อเจ้าปัจจุบันไม่ได้ตั้งค่า / โควตาเต็ม / rate limit / error ดูรายละเอียดหัวข้อ [4.1](#41-multi-provider-ai--fallback)
 
 ---
 
@@ -133,7 +136,11 @@ bun run dev
 | ตัวแปร | จำเป็น | คำอธิบาย |
 |---|---|---|
 | `DATABASE_URL` | ✅ | connection string ของ PostgreSQL |
-| `ANTHROPIC_API_KEY` | ✅ | Claude API key (`sk-ant-...`) |
+| `OPENAI_API_KEY` | ✅† | OpenAI key (`sk-...`) — provider หลัก (default) |
+| `ANTHROPIC_API_KEY` | ⬜† | Claude API key (`sk-ant-...`) — fallback |
+| `GEMINI_API_KEY` | ⬜† | Google Gemini key — fallback (รองรับ `GOOGLE_GENERATIVE_AI_API_KEY` ด้วย) |
+| `AI_PROVIDER_ORDER` | ⬜ | ลำดับ provider (default `openai,anthropic,gemini`) |
+| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `GEMINI_MODEL` | ⬜ | override ชื่อ model แต่ละเจ้า |
 | `TRIGGER_SECRET_KEY` | ✅* | Trigger.dev secret (`tr_...`) — จำเป็นถ้าจะให้ job รันบน cloud |
 | `GITHUB_APP_ID` | ✅** | App ID (ตัวเลข) |
 | `GITHUB_APP_PRIVATE_KEY` | ✅** | PEM key แบบ single-line (`\n`) |
@@ -143,7 +150,60 @@ bun run dev
 | `SENTRY_DSN` | ⬜ | error tracking |
 | `POSTGRES_PASSWORD` / `WEBHOOK_PORT` / `DASHBOARD_PORT` | ⬜ | สำหรับ Docker self-hosted |
 
-<sub>\* ถ้าไม่ตั้ง Trigger.dev job จะ trigger ไม่ได้ &nbsp; \*\* จำเป็นเมื่อต้องการรองรับ GitHub จริง</sub>
+<sub>\* ถ้าไม่ตั้ง Trigger.dev job จะ trigger ไม่ได้ &nbsp; \*\* จำเป็นเมื่อต้องการรองรับ GitHub จริง &nbsp; † ต้องมี AI provider **อย่างน้อย 1 เจ้า** (ตั้งหลายเจ้าได้เพื่อ fallback)</sub>
+
+---
+
+### 4.1 Multi-Provider AI + Fallback
+
+ระบบรองรับ AI หลายเจ้า และ **เลือกใช้ + fallback อัตโนมัติ** (โค้ดอยู่ที่ [packages/ai/src/providers.ts](packages/ai/src/providers.ts))
+
+**หลักการทำงาน:**
+1. อ่านลำดับจาก `AI_PROVIDER_ORDER` (default `openai,anthropic,gemini`)
+2. **เลือกเฉพาะเจ้าที่ตั้ง API key ไว้** — เจ้าที่ไม่ได้ตั้งค่าจะถูกข้ามอัตโนมัติ
+3. เรียกเจ้าแรกก่อน ถ้า **ล้มเหลว** จะ fallback ไปเจ้าถัดไปตามกรณี:
+
+| กรณี error | fallback ไปเจ้าถัดไป? | retry job ภายหลัง? (ถ้าเป็นเจ้าสุดท้าย) |
+|---|---|---|
+| โควตาเต็ม / rate limit (429, "quota", "exceeded") | ✅ | ✅ |
+| auth ผิด (401/403, "api key", "unauthorized") | ✅ | ❌ |
+| server error (5xx) | ✅ | ✅ |
+| schema/request ผิด (400) | ❌ (ผิดเหมือนกันทุกเจ้า) | ❌ |
+| network/timeout | ✅ | ✅ |
+
+4. ถ้าทุกเจ้าล้มเหลว → โยน `ReviewError` (retryable ตามสาเหตุสุดท้าย)
+5. ผลลัพธ์ที่คืนมามี field `provider` บอกว่าเจ้าไหนเป็นคนตอบ (บันทึกใน review ด้วย)
+
+**ตัวอย่างการตั้งค่า:**
+```bash
+# ค่าเริ่มต้น: ใช้ OpenAI เป็นหลัก, มี Anthropic + Gemini สำรองเมื่อโควตาเต็ม
+AI_PROVIDER_ORDER=openai,anthropic,gemini
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=AI...
+
+# หรือใช้ Gemini เป็นหลัก (ราคาถูกกว่า) แล้ว fallback ไป OpenAI
+AI_PROVIDER_ORDER=gemini,openai
+GEMINI_API_KEY=AI...
+OPENAI_API_KEY=sk-...
+```
+
+**ตรวจสอบว่า provider ไหนพร้อมใช้งาน** — เรียก health endpoint:
+```bash
+curl http://localhost:3000/api/health/ai
+# {
+#   "ok": true,
+#   "order": "openai,anthropic,gemini",
+#   "activeProvider": "openai",
+#   "providers": [
+#     { "name": "openai", "envVar": "OPENAI_API_KEY", "configured": true },
+#     { "name": "anthropic", "envVar": "ANTHROPIC_API_KEY", "configured": false },
+#     { "name": "gemini", "envVar": "...", "configured": false }
+#   ]
+# }
+```
+
+> ⚠️ อย่าลืมตั้ง key เหล่านี้ใน **Trigger.dev dashboard** ด้วย เพราะ review job รันบน Trigger.dev cloud (ไม่ใช่บน webhook)
 
 ### กลุ่ม Dashboard (`apps/dashboard/.env.local`)
 
@@ -282,7 +342,7 @@ curl -X POST http://localhost:3000/api/review/diff \
   }'
 # คืน: { score, summary, comments[], tokensUsed }
 ```
-นี่คือวิธีเร็วที่สุดในการยืนยันว่า `ANTHROPIC_API_KEY` + prompt + schema ทำงาน
+นี่คือวิธีเร็วที่สุดในการยืนยันว่า AI provider (เช่น `OPENAI_API_KEY`) + prompt + schema ทำงาน
 
 ### วิธีที่ 2: ทดสอบ GitHub webhook เต็มรูปแบบ
 1. ใช้ `wrangler dev` รัน webhook + `trigger.dev dev` รัน queue
@@ -316,7 +376,7 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 ### ขั้นตอนหลักก่อน deploy
 1. **Cloudflare KV:** `wrangler kv namespace create RATE_LIMIT_KV` แล้วใส่ `id` ใน [apps/webhook/wrangler.toml](apps/webhook/wrangler.toml)
-2. **Secrets ของ Worker:** ตั้งด้วย `wrangler secret put <KEY>` (ดูรายการใน wrangler.toml: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITLAB_*`, `ANTHROPIC_API_KEY`, `TRIGGER_SECRET_KEY`, `DATABASE_URL`)
+2. **Secrets ของ Worker:** ตั้งด้วย `wrangler secret put <KEY>` (ดูรายการใน wrangler.toml: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITLAB_*`, AI keys เช่น `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`GEMINI_API_KEY`, `TRIGGER_SECRET_KEY`, `DATABASE_URL`)
 3. **Trigger.dev env:** ตั้ง env ทั้งหมดใน Trigger.dev dashboard ด้วย (เพราะ task รันบน cloud)
 4. **Vercel env:** ใส่ env กลุ่ม dashboard ใน Project Settings
 5. **อัปเดต callback URLs:** GitHub OAuth callback + Stripe webhook endpoint ให้ชี้ domain production
@@ -332,7 +392,7 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 ```bash
 # 1) เตรียม env
 cp .env.example .env
-#    ตั้งค่าอย่างน้อย: GITHUB_APP_*, ANTHROPIC_API_KEY, TRIGGER_SECRET_KEY,
+#    ตั้งค่าอย่างน้อย: GITHUB_APP_*, OPENAI_API_KEY (หรือ AI provider อื่น), TRIGGER_SECRET_KEY,
 #    BETTER_AUTH_SECRET, GITHUB_CLIENT_ID/SECRET, POSTGRES_PASSWORD
 
 # 2) build + run ทั้ง stack (postgres + webhook + dashboard + migrate)
@@ -383,7 +443,7 @@ docker compose up -d --build
 | `bun install` ล้มเหลว | Bun เวอร์ชันต่ำกว่า 1.3.0 | `bun upgrade` |
 | webhook คืน 401 | signature ไม่ตรง — `GITHUB_WEBHOOK_SECRET` ไม่ตรงกับที่ตั้งใน GitHub App | ตั้ง secret ให้ตรงทั้งสองฝั่ง |
 | webhook คืน 429 | ติด rate limit (free plan 50/เดือน) | upgrade plan หรือเช็คตาราง `rateLimits` |
-| Claude review ไม่ทำงาน | `ANTHROPIC_API_KEY` ไม่ถูกต้อง / ไม่มี credit | เช็ค key ที่ console.anthropic.com |
+| AI review ไม่ทำงาน | ไม่ได้ตั้ง AI key เลย / key ผิด / โควตาเต็มทุกเจ้า | เช็ค `GET /api/health/ai` ว่ามี provider พร้อมใช้งาน (default หลักคือ `OPENAI_API_KEY`) |
 | job ไม่รัน | `TRIGGER_SECRET_KEY` ไม่ตั้ง หรือ `trigger.dev dev`/deploy ไม่ได้รัน | ตั้ง key + รัน task runner |
 | inline comment ไม่ปรากฏ แต่ job สำเร็จ | line number map ไม่ตรง diff | ดู `getModifiedLines()` ใน [packages/ai/src/patch.ts](packages/ai/src/patch.ts) |
 | ล็อกอินไม่ได้ | OAuth callback URL ไม่ตรง / `BETTER_AUTH_SECRET` ไม่ตั้ง | ตั้ง callback `.../api/auth/callback/github` |
