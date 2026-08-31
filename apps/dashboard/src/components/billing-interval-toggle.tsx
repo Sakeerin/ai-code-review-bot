@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import type { BillingInterval } from "@/lib/org"
+import type { BillingInterval } from "@/lib/plans"
 
 interface BillingIntervalToggleProps {
   value: BillingInterval

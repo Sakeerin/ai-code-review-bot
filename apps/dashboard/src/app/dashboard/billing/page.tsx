@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { BillingIntervalToggle } from "@/components/billing-interval-toggle"
 import { UpgradeButton } from "@/components/upgrade-button"
 import { ManageSubscriptionButton } from "@/components/manage-subscription-button"
-import { PLAN_LIMITS, OVERAGE_PRICE_PER_PR, type Plan, type BillingInterval } from "@/lib/org"
+import { PLAN_LIMITS, OVERAGE_PRICE_PER_PR, type Plan, type BillingInterval } from "@/lib/plans"
 
 // ─── Types (server-fetched data passed as props from a server wrapper) ──
 

@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { BillingIntervalToggle } from "@/components/billing-interval-toggle"
 import { UpgradeButton } from "@/components/upgrade-button"
-import { PLAN_LIMITS, type BillingInterval } from "@/lib/org"
+import { PLAN_LIMITS, type BillingInterval } from "@/lib/plans"
 
 // ─── Feature matrix ─────────────────────────────────────────────
 
