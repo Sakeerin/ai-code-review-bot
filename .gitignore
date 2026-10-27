@@ -11,14 +11,18 @@ dist/
 out/
 
 # Environment
-.env
-.env.local
-.env.*.local
-.dev.vars
+.env*
+!.env.example
+.dev.vars*
+*.pem
+*.key
+*.p12
+*.pfx
 
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 

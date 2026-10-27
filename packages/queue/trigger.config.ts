@@ -1,7 +1,11 @@
 import type { TriggerConfig } from '@trigger.dev/sdk/v3'
 
+const projectId = process.env.TRIGGER_PROJECT_ID
+if (!projectId)
+  throw new Error('Set TRIGGER_PROJECT_ID in the root .env for your Trigger.dev project')
+
 export const config: TriggerConfig = {
-  project: 'ai-review-bot',
+  project: projectId,
   retries: {
     enabledInDev: true,
     default: {
@@ -13,3 +17,5 @@ export const config: TriggerConfig = {
   },
   dirs: ['./src/tasks'],
 }
+
+export default config

@@ -57,13 +57,13 @@
       "properties": {
         "reviewbot.apiUrl": {
           "type": "string",
-          "default": "https://reviewbot.app",
+          "default": "http://localhost:3000",
           "description": "Base URL of your AI Review Bot dashboard (change for self-hosted)"
         },
         "reviewbot.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Your AI Review Bot API key (from Dashboard → Settings → API Keys)"
+          "description": "API key configured by your AI Review Bot server administrator"
         },
         "reviewbot.profile": {
           "type": "string",

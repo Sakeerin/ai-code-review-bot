@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an improvement. English and Thai are welcome.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe who would benefit and an example use case.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the behavior you would like and any alternatives considered.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Relevant examples or tradeoffs. Do not include private data.

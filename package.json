@@ -1,7 +1,20 @@
 {
   "name": "ai-review-bot",
+  "description": "Open-source AI code reviews for GitHub, GitLab, and Bitbucket",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sakeerin/ai-code-review-bot.git"
+  },
+  "homepage": "https://github.com/Sakeerin/ai-code-review-bot#readme",
+  "bugs": {
+    "url": "https://github.com/Sakeerin/ai-code-review-bot/issues"
+  },
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "test": "bun test tests",
     "billing:verify": "bun run apps/dashboard/scripts/verify-stripe-billing.ts",

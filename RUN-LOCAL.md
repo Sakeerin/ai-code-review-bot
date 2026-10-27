@@ -52,7 +52,7 @@ powershell -c "irm bun.sh/install.ps1 | iex"
 ## 2. Clone และติดตั้ง
 
 ```bash
-git clone <repo-url> ai-code-review-bot
+git clone https://github.com/Sakeerin/ai-code-review-bot.git
 cd ai-code-review-bot
 
 # ติดตั้ง dependencies ทั้ง monorepo (ใช้เวลาสักครู่)

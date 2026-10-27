@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible problem. English and Thai are welcome.
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        For security vulnerabilities, use the private reporting link instead.
+        Remove credentials, webhook signatures, private code, and personal data
+        from all examples and logs.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal example using synthetic data.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit/version, OS, Bun/Node versions, provider, and deployment method.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Check for secrets and private data before submitting.
