@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../middleware/verify-signature.js'
-import { tasks } from '@trigger.dev/sdk/v3'
+import { triggerTask } from '../lib/trigger.js'
 import { z } from 'zod'
 
 const BitbucketPRPayloadSchema = z.object({
@@ -49,6 +49,7 @@ export async function handleBitbucketPR(c: Context<AppEnv>): Promise<Response> {
   }
 
   const jobPayload = {
+    reservationKey: c.get('reservationKey'),
     workspace,
     repoSlug,
     repoFullName: repository.full_name,
@@ -63,7 +64,10 @@ export async function handleBitbucketPR(c: Context<AppEnv>): Promise<Response> {
 
   console.log(`Bitbucket PR event: ${repository.full_name}#${pr.id} "${pr.title}"`)
 
-  await tasks.trigger('review-bitbucket-pull-request', jobPayload)
+  await triggerTask(c.env, 'review-bitbucket-pull-request', jobPayload, {
+    concurrencyKey: `bitbucket:${repository.full_name}:${pr.id}`,
+    idempotencyKey: `bitbucket:${repository.full_name}:${pr.id}:${pr.source.commit.hash}`,
+  })
 
   return c.json({
     status: 'accepted',

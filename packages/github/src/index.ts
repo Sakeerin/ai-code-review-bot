@@ -1,5 +1,5 @@
-export { GitHubClient } from './client.js'
-export { createAppOctokit, createInstallationOctokit } from './app.js'
+export { GitHubClient } from './client'
+export { createAppOctokit, createInstallationOctokit } from './app'
 export type {
   GitHubAppConfig,
   PullRequestInfo,
@@ -7,4 +7,4 @@ export type {
   ReviewCommentPayload,
   CreateReviewPayload,
   WebhookPullRequestPayload,
-} from './types.js'
+} from './types'

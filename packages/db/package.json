@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
     "./client": "./src/client.ts",
-    "./auth": "./src/auth.ts"
+    "./auth": "./src/auth.ts",
+    "./webhook-url": "./src/webhook-url.ts"
   },
   "scripts": {
     "generate": "bun --env-file=../../.env run drizzle-kit generate",

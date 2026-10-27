@@ -12,6 +12,7 @@ export interface PullRequestInfo {
   author: string
   baseBranch: string
   headBranch: string
+  headSha: string
   htmlUrl: string
   diffUrl: string
   additions: number

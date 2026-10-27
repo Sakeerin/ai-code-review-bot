@@ -1,4 +1,4 @@
-import type { ReviewBotConfig } from './config.js'
+import type { ReviewBotConfig } from './config'
 
 export function buildSystemPrompt(config: ReviewBotConfig): string {
   const isThai = config.language === 'th' || config.language === 'thai'

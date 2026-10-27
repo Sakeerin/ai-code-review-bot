@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { generateObjectWithFallback } from './providers.js'
+import { generateObjectWithFallback } from './providers'
 
 export interface RepoFileSample {
   path: string

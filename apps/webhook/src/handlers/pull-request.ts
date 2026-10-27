@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../middleware/verify-signature.js'
-import { tasks } from '@trigger.dev/sdk/v3'
+import { triggerTask } from '../lib/trigger.js'
 import { z } from 'zod'
 
 /** PR actions we want to trigger a review for */
@@ -40,9 +40,7 @@ export async function handlePullRequest(c: Context<AppEnv>): Promise<Response> {
 
   const { action, pull_request: pr, repository, installation } = payload
 
-  console.log(
-    `📨 PR event: ${action} — ${repository.full_name}#${pr.number} "${pr.title}"`,
-  )
+  console.log(`📨 PR event: ${action} — ${repository.full_name}#${pr.number} "${pr.title}"`)
 
   // Only review on specific actions
   if (!REVIEWABLE_ACTIONS.includes(action)) {
@@ -61,7 +59,9 @@ export async function handlePullRequest(c: Context<AppEnv>): Promise<Response> {
 
   // ── Dispatch background job ──────────────────────────────────
   const jobPayload = {
+    reservationKey: c.get('reservationKey'),
     installationId: installation.id,
+    githubRepoId: repository.id,
     repoFullName: repository.full_name,
     prNumber: pr.number,
     prTitle: pr.title,
@@ -72,7 +72,10 @@ export async function handlePullRequest(c: Context<AppEnv>): Promise<Response> {
   console.log('🚀 Dispatching review job:', JSON.stringify(jobPayload))
 
   // Dispatch Trigger.dev task
-  await tasks.trigger('review-pull-request', jobPayload)
+  await triggerTask(c.env, 'review-pull-request', jobPayload, {
+    concurrencyKey: `github:${installation.id}:${repository.id}:${pr.number}`,
+    idempotencyKey: `github:${installation.id}:${repository.id}:${pr.number}:${pr.head.sha}`,
+  })
 
   return c.json({
     status: 'accepted',

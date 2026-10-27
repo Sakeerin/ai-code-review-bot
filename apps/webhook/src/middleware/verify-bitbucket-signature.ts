@@ -12,11 +12,8 @@ export async function verifyBitbucketSignature(
   const signature = c.req.header('X-Hub-Signature')
   const secret = c.env.BITBUCKET_WEBHOOK_SECRET
 
-  // If no secret is configured, skip verification (useful in dev)
   if (!secret) {
-    const body = await c.req.text()
-    c.set('rawBody', body)
-    return next()
+    return c.json({ error: 'Bitbucket webhook secret is not configured' }, 503)
   }
 
   if (!signature) {

@@ -8,10 +8,13 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
+    "@repo/ai": "workspace:*",
     "@repo/db": "*",
+    "@repo/github": "workspace:*",
+    "@sentry/core": "^8.54.0",
     "@sentry/nextjs": "^8.54.0",
     "@tailwindcss/postcss": "^4.2.2",
     "better-auth": "^1.6.1",
@@ -27,6 +30,7 @@
     "zod": "^4.4.1"
   },
   "devDependencies": {
+    "@types/node": "26.4.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "typescript": "^5.8.0"

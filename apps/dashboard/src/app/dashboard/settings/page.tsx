@@ -1,5 +1,6 @@
 import { auth } from "@repo/db/auth"
 import { headers } from "next/headers"
+import Link from "next/link"
 import { redirect } from "next/navigation"
 import { getUserOrg } from "@/lib/org"
 import { SlackSettingsForm } from "@/components/settings-form"
@@ -102,9 +103,9 @@ export default async function SettingsPage() {
               <p className="font-medium">Add a .reviewbot.yml to your repo (optional)</p>
               <p className="text-muted-foreground mt-0.5">
                 See{" "}
-                <a href="/docs" className="underline hover:text-foreground">
+                <Link href="/docs" className="underline hover:text-foreground">
                   the docs
-                </a>{" "}
+                </Link>{" "}
                 for configuration options. Without it the bot uses default settings.
               </p>
             </div>
@@ -113,7 +114,7 @@ export default async function SettingsPage() {
 
         <div className="rounded-lg bg-secondary/50 p-4 text-xs text-muted-foreground">
           Once you open or update a Merge Request, the bot will automatically appear as a
-          repository in your <a href="/dashboard/repos" className="underline hover:text-foreground">Repositories</a> list
+          repository in your <Link href="/dashboard/repos" className="underline hover:text-foreground">Repositories</Link> list
           after the first review completes.
         </div>
       </section>

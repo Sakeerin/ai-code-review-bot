@@ -2,7 +2,14 @@ import { task } from '@trigger.dev/sdk/v3'
 import { GitLabClient } from '@repo/gitlab'
 import type { GitLabMergeRequestChange } from '@repo/gitlab'
 import { createDb } from '@repo/db'
-import { parseReviewBotConfig, reviewDiff, getModifiedLines, ReviewError } from '@repo/ai'
+import { releaseReviewReservation, skipReview } from '../lib/review-reservation.js'
+import {
+  cachedReview,
+  makeReviewKey,
+  reviewIsCompleted,
+  reviewMarker,
+} from '../lib/review-state.js'
+import { parseReviewBotConfig, reviewDiff, getModifiedLines, ReviewError, isFileIgnored } from '@repo/ai'
 import {
   saveReviewAndNotify,
   saveFailedReview,
@@ -19,12 +26,16 @@ export interface ReviewMergeRequestPayload {
   mergeRequestTitle: string
   mergeRequestAuthor: string
   rootNamespace?: string
+  headSha?: string
+  reservationKey?: string
 }
 
 const MAX_ATTEMPTS = 3
 
 export const reviewMergeRequestTask = task({
   id: 'review-merge-request',
+  queue: { concurrencyLimit: 1 },
+  onFailure: async (payload: ReviewMergeRequestPayload) => { await releaseReviewReservation(createDb(undefined, 2), payload.reservationKey) },
   retry: {
     maxAttempts: MAX_ATTEMPTS,
     factor: 2,
@@ -32,15 +43,25 @@ export const reviewMergeRequestTask = task({
     maxTimeoutInMs: 30000,
   },
   run: async (payload: ReviewMergeRequestPayload, { ctx }) => {
-    const { projectId, projectPath, mergeRequestIid, mergeRequestTitle, mergeRequestAuthor } = payload
+    const { projectId, projectPath, mergeRequestIid, mergeRequestTitle, mergeRequestAuthor } =
+      payload
     const isLastAttempt = ctx.attempt.number >= MAX_ATTEMPTS
     const reviewUrl = payload.projectWebUrl
       ? `${payload.projectWebUrl}/-/merge_requests/${mergeRequestIid}`
       : `https://gitlab.com/${projectPath}/-/merge_requests/${mergeRequestIid}`
 
-    console.log(`[attempt ${ctx.attempt.number}] Starting review for ${projectPath}!${mergeRequestIid}`)
+    console.log(
+      `[attempt ${ctx.attempt.number}] Starting review for ${projectPath}!${mergeRequestIid}`,
+    )
 
     const db = createDb(undefined, 2)
+    const repoRecord = await upsertGitLabRepo(db, {
+      projectId,
+      projectPath,
+      projectWebUrl: payload.projectWebUrl,
+      rootNamespace: payload.rootNamespace,
+    })
+    if (repoRecord.isActive === false) return skipReview(db, payload.reservationKey, 'Repository is inactive')
     const gitlabClient = new GitLabClient({
       baseUrl: process.env.GITLAB_API_URL ?? 'https://gitlab.com/api/v4',
       token: process.env.GITLAB_TOKEN!,
@@ -48,6 +69,17 @@ export const reviewMergeRequestTask = task({
 
     try {
       const mergeRequest = await gitlabClient.getMergeRequest(projectId, mergeRequestIid)
+      if (payload.headSha && payload.headSha !== mergeRequest.diffRefs.headSha) {
+        return skipReview(db, payload.reservationKey, 'Superseded commit')
+      }
+      const reviewKey = makeReviewKey(
+        'gitlab',
+        repoRecord.id,
+        mergeRequestIid,
+        mergeRequest.diffRefs.headSha,
+      )
+      if (await reviewIsCompleted(db, reviewKey))
+        return skipReview(db, payload.reservationKey, 'Commit already reviewed')
       const changes = await gitlabClient.getMergeRequestChanges(projectId, mergeRequestIid)
       const configYml = await gitlabClient.getFileContent(
         projectId,
@@ -60,14 +92,14 @@ export const reviewMergeRequestTask = task({
         .filter((file) => {
           if (file.deletedFile) return false
           if (!file.diff) return false
-          if (config.ignore.some((ig) => file.newPath.includes(ig.replace(/\*/g, '')))) return false
+          if (isFileIgnored(file.newPath, config.ignore)) return false
           if (getModifiedLines(file.diff).length > config.limits.max_file_size_lines) return false
           return true
         })
         .slice(0, config.limits.max_files_per_pr)
 
       if (reviewableFiles.length === 0) {
-        return { success: true, message: 'No files to review.' }
+        return skipReview(db, payload.reservationKey, 'No files to review.')
       }
 
       const diffContent = reviewableFiles
@@ -76,25 +108,35 @@ export const reviewMergeRequestTask = task({
 
       let reviewResult: Awaited<ReturnType<typeof reviewDiff>>
       try {
-        reviewResult = await reviewDiff(diffContent, config)
+        reviewResult = await cachedReview(db, reviewKey, repoRecord.id, () =>
+          reviewDiff(diffContent, config),
+        )
       } catch (err) {
         if (err instanceof ReviewError && !err.retryable) {
-          console.error(`Non-retryable Claude error for ${projectPath}!${mergeRequestIid}:`, err.message)
-          await gitlabClient.createMergeRequestNote(
-            projectId,
-            mergeRequestIid,
-            `> **AI Review Bot** could not complete the review.\n> Reason: ${err.message}\n\n_This is a permanent error and will not be retried._`,
-          ).catch(() => {})
-          const repoRecord = await upsertGitLabRepo(db, {
-            projectId, projectPath, projectWebUrl: payload.projectWebUrl, rootNamespace: payload.rootNamespace,
-          }).catch(() => null)
+          console.error(
+            `Non-retryable Claude error for ${projectPath}!${mergeRequestIid}:`,
+            err.message,
+          )
+          await gitlabClient
+            .createMergeRequestNote(
+              projectId,
+              mergeRequestIid,
+              `> **AI Review Bot** could not complete the review.\n> Reason: ${err.message}\n\n_This is a permanent error and will not be retried._`,
+            )
+            .catch(() => {})
           if (repoRecord) {
             await saveFailedReview({
-              db, repoId: repoRecord.id, provider: 'gitlab',
-              prNumber: mergeRequestIid, prTitle: mergeRequestTitle, prAuthor: mergeRequestAuthor,
-              reviewUrl, errorMessage: err.message,
+              db,
+              repoId: repoRecord.id,
+              provider: 'gitlab',
+              prNumber: mergeRequestIid,
+              prTitle: mergeRequestTitle,
+              prAuthor: mergeRequestAuthor,
+              reviewUrl,
+              errorMessage: err.message,
             })
           }
+          await releaseReviewReservation(db, payload.reservationKey)
           return { success: false, projectPath, mergeRequestIid, message: err.message }
         }
         throw err // Retryable — let Trigger.dev retry with backoff
@@ -103,6 +145,7 @@ export const reviewMergeRequestTask = task({
       const persistedComments: PersistedComment[] = []
       let commentsPosted = 0
       let bugsFound = 0
+      const existingBodies = await gitlabClient.getCommentBodies(projectId, mergeRequestIid)
 
       for (const comment of reviewResult.comments) {
         const file = reviewableFiles.find((f) => f.newPath === comment.file)
@@ -111,18 +154,20 @@ export const reviewMergeRequestTask = task({
 
         if (comment.severity === 'bug') bugsFound++
 
-        const body = formatCommentBody(comment.severity, comment.message, comment.suggestion)
+        const marker = reviewMarker(reviewKey, `comment-${reviewResult.comments.indexOf(comment)}`)
+        const body = `${formatCommentBody(comment.severity, comment.message, comment.suggestion)}\n\n${marker}`
 
         try {
-          await gitlabClient.createInlineDiscussion(projectId, mergeRequestIid, {
-            body,
-            oldPath: file.oldPath,
-            newPath: file.newPath,
-            newLine: comment.line,
-            baseSha: mergeRequest.diffRefs.baseSha,
-            startSha: mergeRequest.diffRefs.startSha,
-            headSha: mergeRequest.diffRefs.headSha,
-          })
+          if (!existingBodies.some((text) => text.includes(marker)))
+            await gitlabClient.createInlineDiscussion(projectId, mergeRequestIid, {
+              body,
+              oldPath: file.oldPath,
+              newPath: file.newPath,
+              newLine: comment.line,
+              baseSha: mergeRequest.diffRefs.baseSha,
+              startSha: mergeRequest.diffRefs.startSha,
+              headSha: mergeRequest.diffRefs.headSha,
+            })
           commentsPosted++
           persistedComments.push({
             file: comment.file,
@@ -132,27 +177,28 @@ export const reviewMergeRequestTask = task({
             suggestion: comment.suggestion,
           })
         } catch (error) {
+          if (![400, 422].includes((error as { status?: number }).status ?? 0)) throw error
           console.warn(`Skipped GitLab inline comment for ${comment.file}:${comment.line}`, error)
         }
       }
 
-      await gitlabClient.createMergeRequestNote(
-        projectId,
-        mergeRequestIid,
-        `### AI Code Review Report\n**Score:** ${reviewResult.score}/100\n\n${reviewResult.summary}\n\n${
-          commentsPosted > 0
-            ? `Posted ${commentsPosted} inline comments.`
-            : '*No inline comments or suggestions.*'
-        }`,
-      )
-
-      const repoRecord = await upsertGitLabRepo(db, {
-        projectId, projectPath, projectWebUrl: payload.projectWebUrl, rootNamespace: payload.rootNamespace,
-      })
+      const summaryMarker = reviewMarker(reviewKey)
+      if (!existingBodies.some((text) => text.includes(summaryMarker)))
+        await gitlabClient.createMergeRequestNote(
+          projectId,
+          mergeRequestIid,
+          `### AI Code Review Report\n**Score:** ${reviewResult.score}/100\n\n${reviewResult.summary}\n\n${
+            commentsPosted > 0
+              ? `Posted ${commentsPosted} inline comments.`
+              : '*No inline comments or suggestions.*'
+          }\n\n${summaryMarker}`,
+        )
 
       await saveReviewAndNotify(
         {
           db,
+          reviewKey,
+          reservationKey: payload.reservationKey,
           repoId: repoRecord.id,
           provider: 'gitlab',
           prNumber: mergeRequestIid,
@@ -181,7 +227,6 @@ export const reviewMergeRequestTask = task({
         mergeRequestIid,
         message: 'GitLab merge request reviewed successfully',
       }
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       console.error(
@@ -190,21 +235,24 @@ export const reviewMergeRequestTask = task({
       )
 
       if (isLastAttempt) {
-        await gitlabClient.createMergeRequestNote(
-          projectId,
-          mergeRequestIid,
-          `> **AI Review Bot** failed to complete the review after ${MAX_ATTEMPTS} attempts.\n> Error: ${errorMessage}\n\n_Please check the bot configuration or contact support._`,
-        ).catch(() => {})
-
-        const repoRecord = await upsertGitLabRepo(db, {
-          projectId, projectPath, projectWebUrl: payload.projectWebUrl, rootNamespace: payload.rootNamespace,
-        }).catch(() => null)
+        await gitlabClient
+          .createMergeRequestNote(
+            projectId,
+            mergeRequestIid,
+            `> **AI Review Bot** failed to complete the review after ${MAX_ATTEMPTS} attempts.\n> Error: ${errorMessage}\n\n_Please check the bot configuration or contact support._`,
+          )
+          .catch(() => {})
 
         if (repoRecord) {
           await saveFailedReview({
-            db, repoId: repoRecord.id, provider: 'gitlab',
-            prNumber: mergeRequestIid, prTitle: mergeRequestTitle, prAuthor: mergeRequestAuthor,
-            reviewUrl, errorMessage,
+            db,
+            repoId: repoRecord.id,
+            provider: 'gitlab',
+            prNumber: mergeRequestIid,
+            prTitle: mergeRequestTitle,
+            prAuthor: mergeRequestAuthor,
+            reviewUrl,
+            errorMessage,
           })
         }
       }

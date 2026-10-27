@@ -4,6 +4,7 @@ import {
   repositories,
   reviews,
   userOrganizations,
+  rateLimits,
   type Organization,
 } from "@repo/db/schema"
 import { and, count, eq, gte, sql } from "@repo/db"
@@ -72,7 +73,13 @@ export async function getUsageSummary(org: Organization) {
   const plan = (org.plan ?? "free") as Plan
   const meta = PLAN_LIMITS[plan]
   const limit = meta.prs
-  const used = await getMonthlyReviewCount(org.id)
+  const orgKey = org.githubInstallationId ? `gh:${org.githubInstallationId}`
+    : org.gitlabNamespace ? `gl:${org.gitlabNamespace}` : org.bitbucketWorkspace ? `bb:${org.bitbucketWorkspace}` : null
+  const counter = orgKey ? await db.query.rateLimits.findFirst({ where: and(
+    eq(rateLimits.orgKey, orgKey), eq(rateLimits.monthKey, new Date().toISOString().slice(0, 7)),
+  ) }) : null
+  // Slots include queued work; failures/no-op reviews release their reservation.
+  const used = counter?.used ?? await getMonthlyReviewCount(org.id)
   const overageCount = limit !== Infinity && used > limit ? used - limit : 0
   const withinQuota = Math.min(used, limit === Infinity ? used : limit)
   const percent = limit === Infinity ? 0 : Math.min(100, Math.round((withinQuota / limit) * 100))

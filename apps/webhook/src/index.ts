@@ -124,14 +124,13 @@ app.onError((err, c) => {
 
 // ─── Export ─────────────────────────────────────────────────────
 
-export default {
-  async fetch(request: Request, env: AppEnv['Bindings'], ctx: ExecutionContext): Promise<Response> {
-    return Sentry.withSentry(
-      {
-        dsn: env.SENTRY_DSN,
-        environment: env.ENVIRONMENT,
-      },
-      () => app.fetch(request, env, ctx)
-    )
-  }
-}
+export { app }
+
+export default Sentry.withSentry(
+  (env: AppEnv['Bindings']) => ({ dsn: env.SENTRY_DSN, environment: env.ENVIRONMENT }),
+  {
+    fetch(request, env, ctx) {
+      return app.fetch(request, env, ctx)
+    },
+  },
+)

@@ -1,5 +1,6 @@
 import { auth } from "@repo/db/auth"
 import { headers } from "next/headers"
+import Link from "next/link"
 import { AnalyticsLineChart } from "@/components/analytics-chart"
 import { getDashboardAnalytics, getUserOrg, getUsageSummary, PLAN_LIMITS } from "@/lib/org"
 
@@ -130,15 +131,15 @@ export default async function DashboardMainPage() {
         <div className="border border-border rounded-xl p-6 bg-card text-card-foreground shadow-sm">
           <h2 className="font-semibold mb-3">Quick Links</h2>
           <div className="flex flex-wrap gap-3">
-            <a href="/dashboard/repos" className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent transition-colors">
+            <Link href="/dashboard/repos" className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent transition-colors">
               View Repositories
-            </a>
-            <a href="/dashboard/history" className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent transition-colors">
+            </Link>
+            <Link href="/dashboard/history" className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent transition-colors">
               Review History
-            </a>
-            <a href="/dashboard/billing" className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent transition-colors">
+            </Link>
+            <Link href="/dashboard/billing" className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent transition-colors">
               Billing & Usage
-            </a>
+            </Link>
           </div>
         </div>
       )}

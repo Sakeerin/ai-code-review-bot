@@ -5,6 +5,7 @@ import {
   integer,
   timestamp,
   boolean,
+  jsonb,
   unique,
   index,
 } from 'drizzle-orm/pg-core'
@@ -15,9 +16,13 @@ import { relations } from 'drizzle-orm'
 export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   githubInstallationId: text('github_installation_id').unique(),
+  gitlabNamespace: text('gitlab_namespace').unique(),
+  bitbucketWorkspace: text('bitbucket_workspace').unique(),
   name: text('name').notNull(),
   plan: text('plan', { enum: ['free', 'team', 'business'] }).default('free'),
   stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id').unique(),
+  subscriptionStatus: text('subscription_status'),
   slackWebhookUrl: text('slack_webhook_url'),
   // Weekly email report settings (V2)
   emailReportEnabled: boolean('email_report_enabled').default(false),
@@ -68,6 +73,7 @@ export const reviews = pgTable('reviews', {
     .notNull(),
   provider: text('provider', { enum: ['github', 'gitlab', 'bitbucket'] }).default('github').notNull(),
   prNumber: integer('pr_number').notNull(),
+  reviewKey: text('review_key').unique(),
   prTitle: text('pr_title'),
   prAuthor: text('pr_author'),
   reviewUrl: text('review_url'),
@@ -224,7 +230,7 @@ export type NewUserOrganization = typeof userOrganizations.$inferInsert
 
 // ─── Stripe Webhook Event Deduplication ──────────────────────────
 // Stores processed Stripe event IDs to prevent replay attacks.
-// Events older than 24h are safe to ignore (Stripe retries stop after ~8h).
+// Retain receipts so automatic retries and manual replays remain idempotent.
 
 export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
   eventId: text('event_id').primaryKey(),
@@ -237,10 +243,40 @@ export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
 
 export const rateLimits = pgTable('rate_limits', {
   id: uuid('id').primaryKey().defaultRandom(),
-  orgKey: text('org_key').notNull(),     // "gh:<installationId>" or "gl:<namespace>"
+  orgKey: text('org_key').notNull(),     // "gh:<installationId>", "gl:<namespace>", "bb:<workspace>"
   monthKey: text('month_key').notNull(), // "YYYY-MM"
   plan: text('plan', { enum: ['free', 'team', 'business'] }).default('free').notNull(),
   used: integer('used').default(0).notNull(),
   overageUsed: integer('overage_used').default(0).notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (t) => [unique('rate_limits_org_month').on(t.orgKey, t.monthKey)])
+
+// Durable AI output lets task retries resume without paying for the same inference.
+export const reviewRuns = pgTable('review_runs', {
+  reviewKey: text('review_key').primaryKey(),
+  repoId: uuid('repo_id').notNull().references(() => repositories.id, { onDelete: 'cascade' }),
+  result: jsonb('result').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+export const reviewReservations = pgTable('review_reservations', {
+  reservationKey: text('reservation_key').primaryKey(),
+  orgKey: text('org_key').notNull(),
+  monthKey: text('month_key').notNull(),
+  status: text('status', { enum: ['reserved', 'completed', 'released'] }).notNull().default('reserved'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [index('review_reservations_org_month_idx').on(t.orgKey, t.monthKey)])
+
+export const notificationOutbox = pgTable('notification_outbox', {
+  id: text('id').primaryKey(),
+  reviewId: uuid('review_id').notNull().references(() => reviews.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['stripe', 'slack'] }).notNull(),
+  payload: jsonb('payload').notNull(),
+  status: text('status', { enum: ['pending', 'delivered', 'failed'] }).notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at').defaultNow().notNull(),
+  lockedUntil: timestamp('locked_until'),
+  deliveredAt: timestamp('delivered_at'),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => [index('notification_outbox_pending_idx').on(t.status, t.nextAttemptAt)])

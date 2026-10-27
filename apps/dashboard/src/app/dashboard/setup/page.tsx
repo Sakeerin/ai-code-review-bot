@@ -1,9 +1,10 @@
-import { auth } from "@repo/db/auth"
-import { db } from "@repo/db/client"
-import { organizations, userOrganizations } from "@repo/db/schema"
-import { eq, and } from "@repo/db"
-import { headers } from "next/headers"
-import { redirect } from "next/navigation"
+import { auth } from '@repo/db/auth'
+import { db } from '@repo/db/client'
+import { organizations, userOrganizations } from '@repo/db/schema'
+import { eq, and } from '@repo/db'
+import { headers } from 'next/headers'
+import { notFound, redirect } from 'next/navigation'
+import { verifyInstallationOwner } from '@/lib/github-installation'
 
 export default async function GithubAppSetupPage({
   searchParams,
@@ -11,18 +12,31 @@ export default async function GithubAppSetupPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
   const params = await searchParams
-  const installationId = params.installation_id as string | undefined
+  const installationId = params.installation_id
 
   if (!installationId) {
-    redirect("/dashboard")
+    redirect('/dashboard')
   }
+  if (
+    typeof installationId !== 'string' ||
+    !/^[1-9]\d*$/.test(installationId) ||
+    !Number.isSafeInteger(Number(installationId))
+  )
+    notFound()
 
   const requestHeaders = await headers()
   const session = await auth.api.getSession({ headers: requestHeaders })
 
   if (!session?.user) {
-    redirect("/")
+    redirect('/')
   }
+
+  const { accessToken } = await auth.api.getAccessToken({
+    headers: requestHeaders,
+    body: { providerId: 'github' },
+  })
+  const installation = await verifyInstallationOwner(accessToken, Number(installationId))
+  if (!installation) notFound()
 
   // Upsert the organization record for this installation
   let org = await db.query.organizations.findFirst({
@@ -34,8 +48,12 @@ export default async function GithubAppSetupPage({
       .insert(organizations)
       .values({
         githubInstallationId: installationId,
-        name: `${session.user.name ?? session.user.email}'s Org`,
-        plan: "free",
+        name: installation.login,
+        plan: 'free',
+      })
+      .onConflictDoUpdate({
+        target: organizations.githubInstallationId,
+        set: { name: installation.login },
       })
       .returning()
     org = newOrg
@@ -51,11 +69,14 @@ export default async function GithubAppSetupPage({
     })
 
     if (!existing) {
-      await db.insert(userOrganizations).values({
-        userId: session.user.id,
-        orgId: org.id,
-        role: "owner",
-      })
+      await db
+        .insert(userOrganizations)
+        .values({
+          userId: session.user.id,
+          orgId: org.id,
+          role: 'owner',
+        })
+        .onConflictDoNothing()
     }
   }
 

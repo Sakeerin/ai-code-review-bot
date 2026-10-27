@@ -3,7 +3,7 @@ import type { Env } from '../types.js'
 
 export type GitLabAppEnv = {
   Bindings: Env
-  Variables: { rawBody: string }
+  Variables: { rawBody: string; reservationKey: string | undefined }
 }
 
 export async function verifyGitLabSignature(

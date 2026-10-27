@@ -1,9 +1,5 @@
 import type { Octokit } from 'octokit'
-import type {
-  PullRequestInfo,
-  PullRequestFile,
-  ReviewCommentPayload,
-} from './types.js'
+import type { PullRequestInfo, PullRequestFile, ReviewCommentPayload } from './types'
 
 /**
  * GitHub API client for PR review operations.
@@ -15,11 +11,7 @@ export class GitHubClient {
   /**
    * Get pull request metadata.
    */
-  async getPullRequest(
-    owner: string,
-    repo: string,
-    prNumber: number,
-  ): Promise<PullRequestInfo> {
+  async getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequestInfo> {
     const { data } = await this.octokit.rest.pulls.get({
       owner,
       repo,
@@ -32,6 +24,7 @@ export class GitHubClient {
       author: data.user?.login ?? 'unknown',
       baseBranch: data.base.ref,
       headBranch: data.head.ref,
+      headSha: data.head.sha,
       htmlUrl: data.html_url,
       diffUrl: data.diff_url,
       additions: data.additions,
@@ -43,11 +36,7 @@ export class GitHubClient {
   /**
    * Fetch the raw unified diff for a pull request.
    */
-  async getPullRequestDiff(
-    owner: string,
-    repo: string,
-    prNumber: number,
-  ): Promise<string> {
+  async getPullRequestDiff(owner: string, repo: string, prNumber: number): Promise<string> {
     const { data } = await this.octokit.rest.pulls.get({
       owner,
       repo,
@@ -114,6 +103,7 @@ export class GitHubClient {
     body: string,
     event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT',
     comments: ReviewCommentPayload[],
+    commitId?: string,
   ): Promise<number> {
     const { data } = await this.octokit.rest.pulls.createReview({
       owner,
@@ -127,6 +117,7 @@ export class GitHubClient {
         side: c.side,
         body: c.body,
       })),
+      commit_id: commitId,
     })
 
     return data.id
@@ -148,6 +139,32 @@ export class GitHubClient {
       issue_number: prNumber,
       body,
     })
+  }
+
+  async hasReviewMarker(owner: string, repo: string, prNumber: number, marker: string) {
+    for await (const { data } of this.octokit.paginate.iterator(
+      this.octokit.rest.pulls.listReviews,
+      {
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+      },
+    )) {
+      if (data.some((review) => review.body?.includes(marker))) return true
+    }
+    for await (const { data } of this.octokit.paginate.iterator(
+      this.octokit.rest.issues.listComments,
+      {
+        owner,
+        repo,
+        issue_number: prNumber,
+        per_page: 100,
+      },
+    )) {
+      if (data.some((comment) => comment.body?.includes(marker))) return true
+    }
+    return false
   }
 
   /**

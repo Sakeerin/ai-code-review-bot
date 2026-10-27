@@ -1,5 +1,54 @@
 # คู่มือนักพัฒนา (Developer Guide) — AI Code Review Bot
 
+## การอัปเดตด้านสิทธิ์และความทนทานของงานรีวิว
+
+ก่อนเริ่ม dashboard, webhook และ queue เวอร์ชันนี้ ให้รัน `bun install` และ
+`bun run db:migrate` กับฐานข้อมูลที่ต้องการใช้งาน Migration `0006` เพิ่มตัวระบุองค์กร
+ของ GitLab/Bitbucket และตารางเก็บผล AI สำหรับทำงานต่อเมื่อ task ต้อง retry
+ให้หยุด worker เวอร์ชันเก่าก่อนสลับ deployment เพื่อไม่ให้รับงานเดียวกันด้วยโค้ดคนละเวอร์ชัน
+
+- Dashboard ต้องมี `GITHUB_APP_ID` และ `GITHUB_APP_PRIVATE_KEY` เพื่อตรวจ installation
+  ผู้เชื่อม installation ต้องเป็นเจ้าของบัญชีส่วนตัวหรือแอดมินองค์กรที่ยังมีสถานะ active
+  สำหรับบัญชีเดิม ให้ลงชื่อเข้าใช้และอนุญาต GitHub อีกครั้งหาก token ยังไม่มี scope `read:org`
+- ตั้ง `BITBUCKET_WEBHOOK_SECRET` เมื่อใช้ Bitbucket หากไม่ตั้ง endpoint จะตอบ `503`
+  และไม่รับงานที่ไม่มีการตรวจลายเซ็น
+- งานรีวิวใช้ concurrency key ต่อ PR และ idempotency key ต่อ commit พร้อมตรวจ marker
+  บนคอมเมนต์ที่โพสต์แล้วก่อน retry และเก็บผล AI ในฐานข้อมูลก่อนโพสต์
+- Migration เติม namespace ให้เฉพาะองค์กรเดิมที่มี provider และ namespace เดียวอย่างชัดเจน
+  ข้อมูลเก่าที่ปะปนข้าม provider ต้องตรวจสอบสิทธิ์และข้อมูลย้อนหลังแยกต่างหาก
+
+รัน `bun run test` เพื่อตรวจ regression tests ซึ่งใช้ PostgreSQL ในหน่วยความจำ (PGlite)
+โดยไม่เชื่อมฐานข้อมูลจริงหรือเรียกบริการภายนอก และรัน `bun run typecheck` เพื่อตรวจ TypeScript
+
+### การอัปเดต billing, quota และ notification
+
+- Migration `0007` เพิ่มสถานะ subscription, reservation ต่อ PR/commit และ `notification_outbox`
+  รวมทั้งปรับ counter เก่าให้ตรงกับรีวิวที่สำเร็จ ให้รอ task เก่าจบและหยุด worker ก่อน migrate
+- โควตารายเดือนนับ UTC calendar month รวมงานที่จองไว้ในคิว งานที่ข้ามหรือหมด retry จะคืนโควตา
+  webhook ซ้ำของ commit เดิมใช้ reservation เดิม Dashboard แสดง quota รวมงานที่รออยู่
+  เมื่อ task จบหรือหมด retry แล้ว webhook ซ้ำจะไม่สร้างงานหรือจองโควตาเพิ่ม ให้ push commit ใหม่เพื่อเริ่มรีวิวรอบใหม่
+- Team รวม 500 รีวิวสำเร็จต่อเดือน ส่ง meter เฉพาะรีวิวที่เกิน 500 รายการ ราคา $0.05 ต่อรายการ
+  Business ไม่ส่ง meter Checkout ของ Team ต้องมี `STRIPE_OVERAGE_PRICE_ID` เป็น USD 5 cents,
+  monthly, metered และผูก meter ที่ตรงกับ `STRIPE_METER_EVENT_NAME`
+  Team รายปีใช้ flexible billing เพื่อรวม base รายปีกับ overage รายเดือน
+  Subscription เดิมที่สร้างก่อนเพิ่ม metered item ต้องปรับผ่าน Stripe ก่อนคิด overage จริง
+- สถานะ active/trialing/past_due คงสิทธิ์ paid ระหว่างช่วง retry ชำระเงิน ส่วน unpaid/paused/canceled/
+  incomplete จะใช้ free โดย webhook อ่านสถานะล่าสุดจาก Stripe เพื่อป้องกัน event ย้อนลำดับ
+- Deploy task `retry-notifications` บน Trigger.dev ด้วย ระบบจะส่ง Stripe/Slack ที่ค้างทุก 5 นาที
+  retry สูงสุด 10 ครั้ง ดูรายการ `status = 'failed'` ใน `notification_outbox` เพื่อแก้ config แล้ว
+  reset `status = 'pending'`, `attempts = 0`, `next_attempt_at = now()`, `locked_until = NULL` สำหรับส่งใหม่
+  Stripe ใช้ identifier เดิม ส่วน Slack เป็น at-least-once และอาจซ้ำได้หาก response หายหลังรับข้อความ
+- Slack URL รับเฉพาะ HTTPS บน `hooks.slack.com` หรือ `hooks.slack-gov.com` เส้นทาง `/services/...`
+  และไม่ตาม redirect ส่วน config ignore รองรับ glob เช่น `**/*.test.ts` และ `dist/**`
+- รัน `bun run lint`, `bun run typecheck`, `bun test tests` และ dashboard build ก่อน merge
+  CI จะตรวจรายการเหล่านี้และ build Docker ทั้งสอง image
+- ตรวจ invoice กับ Stripe sandbox ด้วย `bun run billing:verify` โดยตั้ง test key และ price IDs
+  ทั้ง monthly/annual ของ Team/Business รวม overage ก่อน คำสั่งปฏิเสธ live key สร้างลูกค้าทดสอบ
+  แบบไม่มี payment method/email ตรวจ invoice preview และลบลูกค้าหลังจบ (ไม่มีการเรียกเก็บเงินจริง)
+  คำสั่งนี้ยังต้องเรียก Stripe จริง จึงไม่รวมใน offline regression tests
+- Docker จะรัน migration ก่อนเปิด dashboard/webhook แต่ queue ยังคงใช้ Trigger.dev แยกต่างหาก
+  ต้อง deploy tasks และตั้ง `DATABASE_URL` ที่ worker บน Trigger.dev เข้าถึงได้ด้วย
+
 > คู่มือสำหรับนักพัฒนาที่ต้องการนำโปรเจคนี้ไปรัน พัฒนาต่อ หรือ deploy เอง
 > ครอบคลุมตั้งแต่การเตรียมเครื่อง การตั้งค่า การรัน local การทดสอบ flow ไปจนถึง deploy และแก้ปัญหา
 >

@@ -26,7 +26,10 @@ export class GitLabClient {
 
     if (!response.ok) {
       const errorText = await response.text()
-      throw new Error(`GitLab API request failed (${response.status}): ${errorText}`)
+      throw Object.assign(
+        new Error(`GitLab API request failed (${response.status}): ${errorText}`),
+        { status: response.status },
+      )
     }
 
     if (response.status === 204) {
@@ -36,7 +39,10 @@ export class GitLabClient {
     return response.json() as Promise<T>
   }
 
-  async getMergeRequest(projectId: number, mergeRequestIid: number): Promise<GitLabMergeRequestInfo> {
+  async getMergeRequest(
+    projectId: number,
+    mergeRequestIid: number,
+  ): Promise<GitLabMergeRequestInfo> {
     const data = await this.request<{
       iid: number
       title: string
@@ -109,11 +115,26 @@ export class GitLabClient {
     }
   }
 
-  async createMergeRequestNote(projectId: number, mergeRequestIid: number, body: string): Promise<void> {
+  async createMergeRequestNote(
+    projectId: number,
+    mergeRequestIid: number,
+    body: string,
+  ): Promise<void> {
     await this.request(`/projects/${projectId}/merge_requests/${mergeRequestIid}/notes`, {
       method: 'POST',
       body: JSON.stringify({ body }),
     })
+  }
+
+  async getCommentBodies(projectId: number, mergeRequestIid: number): Promise<string[]> {
+    const bodies: string[] = []
+    for (let page = 1; ; page++) {
+      const notes = await this.request<Array<{ body: string }>>(
+        `/projects/${projectId}/merge_requests/${mergeRequestIid}/notes?per_page=100&page=${page}`,
+      )
+      bodies.push(...notes.map((note) => note.body))
+      if (notes.length < 100) return bodies
+    }
   }
 
   async createInlineDiscussion(

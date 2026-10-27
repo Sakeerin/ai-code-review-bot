@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../middleware/verify-signature.js'
-import { tasks } from '@trigger.dev/sdk/v3'
+import { triggerTask } from '../lib/trigger.js'
 import { z } from 'zod'
 
 const InstallationPayloadSchema = z.object({
@@ -14,11 +14,15 @@ const InstallationPayloadSchema = z.object({
     }),
     app_id: z.number(),
   }),
-  repositories: z.array(z.object({
-    id: z.number(),
-    full_name: z.string(),
-    private: z.boolean(),
-  })).optional(),
+  repositories: z
+    .array(
+      z.object({
+        id: z.number(),
+        full_name: z.string(),
+        private: z.boolean(),
+      }),
+    )
+    .optional(),
 })
 
 export async function handleInstallation(c: Context<AppEnv>): Promise<Response> {
@@ -47,7 +51,7 @@ export async function handleInstallation(c: Context<AppEnv>): Promise<Response> 
   switch (action) {
     case 'created':
     case 'deleted':
-      await tasks.trigger('sync-installation', {
+      await triggerTask(c.env, 'sync-installation', {
         action,
         installationId: installation.id,
         accountLogin: installation.account.login,

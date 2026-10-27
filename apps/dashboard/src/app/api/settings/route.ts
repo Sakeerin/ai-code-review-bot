@@ -6,9 +6,11 @@ import { eq } from "@repo/db"
 import { getUserOrg } from "@/lib/org"
 import { headers } from "next/headers"
 import { z } from "zod"
+import { isSlackWebhookUrl } from "@repo/db/webhook-url"
 
 const SettingsSchema = z.object({
-  slackWebhookUrl: z.string().url().or(z.literal("")).optional(),
+  slackWebhookUrl: z.string().refine((value) => value === "" || isSlackWebhookUrl(value),
+    "Enter a valid HTTPS Slack incoming webhook URL").optional(),
 })
 
 export async function POST(req: Request) {

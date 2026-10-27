@@ -23,7 +23,9 @@ export class BitbucketClient {
     })
     if (!res.ok) {
       const body = await res.text().catch(() => '(no body)')
-      throw new Error(`Bitbucket API ${res.status} ${res.statusText}: ${body}`)
+      throw Object.assign(new Error(`Bitbucket API ${res.status} ${res.statusText}: ${body}`), {
+        status: res.status,
+      })
     }
     return res.json() as Promise<T>
   }
@@ -44,7 +46,11 @@ export class BitbucketClient {
     return res.text()
   }
 
-  async getPullRequestFiles(workspace: string, repoSlug: string, prId: number): Promise<BitbucketPRFile[]> {
+  async getPullRequestFiles(
+    workspace: string,
+    repoSlug: string,
+    prId: number,
+  ): Promise<BitbucketPRFile[]> {
     interface DiffstatEntry {
       status: 'added' | 'modified' | 'removed' | 'renamed'
       lines_added: number
@@ -52,7 +58,9 @@ export class BitbucketClient {
       new?: { path: string }
       old?: { path: string }
     }
-    interface DiffstatResponse { values: DiffstatEntry[] }
+    interface DiffstatResponse {
+      values: DiffstatEntry[]
+    }
 
     const data = await this.request<DiffstatResponse>(
       `/repositories/${workspace}/${repoSlug}/pullrequests/${prId}/diffstat`,
@@ -93,6 +101,24 @@ export class BitbucketClient {
       method: 'POST',
       body: JSON.stringify({ content: { raw: body } }),
     })
+  }
+
+  async getCommentBodies(workspace: string, repoSlug: string, prId: number): Promise<string[]> {
+    const bodies: string[] = []
+    for (let page = 1; ; page++) {
+      const data = await this.request<{
+        values: Array<{ deleted?: boolean; content?: { raw?: string } }>
+        next?: string
+      }>(
+        `/repositories/${workspace}/${repoSlug}/pullrequests/${prId}/comments?pagelen=100&page=${page}`,
+      )
+      bodies.push(
+        ...data.values
+          .filter((comment) => !comment.deleted)
+          .map((comment) => comment.content?.raw ?? ''),
+      )
+      if (!data.next) return bodies
+    }
   }
 
   async createInlineComment(

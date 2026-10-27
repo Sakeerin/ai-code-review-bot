@@ -1,6 +1,6 @@
 import { createAppAuth } from '@octokit/auth-app'
 import { Octokit } from 'octokit'
-import type { GitHubAppConfig } from './types.js'
+import type { GitHubAppConfig } from './types'
 
 /**
  * Creates an authenticated Octokit instance for a GitHub App installation.

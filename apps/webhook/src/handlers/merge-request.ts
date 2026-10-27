@@ -1,5 +1,5 @@
 import type { Context } from 'hono'
-import { tasks } from '@trigger.dev/sdk/v3'
+import { triggerTask } from '../lib/trigger.js'
 import type { GitLabAppEnv } from '../middleware/verify-gitlab-signature.js'
 import { z } from 'zod'
 
@@ -16,16 +16,21 @@ const MergeRequestPayloadSchema = z.object({
     iid: z.number(),
     title: z.string(),
     action: z.string().optional(),
+    last_commit: z.object({ id: z.string() }).optional(),
   }),
-  user: z.object({
-    username: z.string().optional(),
-    name: z.string().optional(),
-  }).optional(),
+  user: z
+    .object({
+      username: z.string().optional(),
+      name: z.string().optional(),
+    })
+    .optional(),
   project_namespace: z.string().optional(),
-  group: z.object({
-    name: z.string().optional(),
-    path: z.string().optional(),
-  }).optional(),
+  group: z
+    .object({
+      name: z.string().optional(),
+      path: z.string().optional(),
+    })
+    .optional(),
 })
 
 export async function handleMergeRequest(c: Context<GitLabAppEnv>): Promise<Response> {
@@ -54,17 +59,28 @@ export async function handleMergeRequest(c: Context<GitLabAppEnv>): Promise<Resp
   }
 
   const jobPayload = {
+    reservationKey: c.get('reservationKey'),
     projectId: payload.project.id,
     projectPath: payload.project.path_with_namespace,
     projectWebUrl: payload.project.web_url,
     mergeRequestIid: payload.object_attributes.iid,
+    headSha: payload.object_attributes.last_commit?.id,
     mergeRequestTitle: payload.object_attributes.title,
     mergeRequestAuthor: payload.user?.username ?? payload.user?.name ?? 'unknown',
     rootNamespace:
-      payload.group?.path ?? payload.project_namespace ?? payload.project.path_with_namespace.split('/')[0],
+      payload.group?.path ??
+      payload.project_namespace ??
+      payload.project.path_with_namespace.split('/')[0],
   }
 
-  await tasks.trigger('review-merge-request', jobPayload)
+  await triggerTask(c.env, 'review-merge-request', jobPayload, {
+    concurrencyKey: `gitlab:${jobPayload.projectId}:${jobPayload.mergeRequestIid}`,
+    ...(jobPayload.headSha
+      ? {
+          idempotencyKey: `gitlab:${jobPayload.projectId}:${jobPayload.mergeRequestIid}:${jobPayload.headSha}`,
+        }
+      : {}),
+  })
 
   return c.json({
     status: 'accepted',

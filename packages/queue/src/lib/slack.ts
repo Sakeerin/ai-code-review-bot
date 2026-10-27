@@ -1,3 +1,5 @@
+import { isSlackWebhookUrl } from '@repo/db/webhook-url'
+
 export interface SlackReviewNotificationPayload {
   provider: 'github' | 'gitlab' | 'bitbucket'
   repository: string
@@ -17,11 +19,14 @@ export async function sendSlackReviewNotification(
 ): Promise<void> {
   const webhookUrl = orgWebhookUrl ?? process.env.SLACK_WEBHOOK_URL
   if (!webhookUrl) return
+  if (!isSlackWebhookUrl(webhookUrl)) throw new Error('Invalid Slack incoming webhook URL')
 
   const reviewLabel = payload.provider === 'gitlab' ? 'Merge Request' : 'Pull Request'
   // bitbucket uses "Pull Request" same as GitHub
   const response = await fetch(webhookUrl, {
     method: 'POST',
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
     headers: {
       'Content-Type': 'application/json',
     },

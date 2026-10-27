@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { readGitDiff } from './git-diff'
 
 interface ReviewComment {
   file: string
@@ -58,18 +59,12 @@ async function callReviewApi(
 
 /** Build a unified diff from the current file's content vs. git HEAD */
 async function buildFileDiff(document: vscode.TextDocument): Promise<string | null> {
-  const { exec } = await import('child_process')
-  const { promisify } = await import('util')
-  const execAsync = promisify(exec)
-
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri)
   if (!workspaceFolder) return null
 
   try {
     const filePath = document.uri.fsPath
-    const { stdout } = await execAsync(`git diff HEAD -- "${filePath}"`, {
-      cwd: workspaceFolder.uri.fsPath,
-    })
+    const stdout = await readGitDiff(filePath, workspaceFolder.uri.fsPath)
     if (stdout.trim()) return stdout
 
     // File is new (not tracked) — generate a synthetic diff from scratch

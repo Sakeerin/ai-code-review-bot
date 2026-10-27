@@ -3,213 +3,166 @@ import type { AppEnv } from './verify-signature.js'
 import { z } from 'zod'
 import postgres from 'postgres'
 
-// ─── Payload schemas (minimal — only fields we actually use) ──────
-
-const GitHubRateLimitSchema = z.object({
-  action: z.string(),
-  installation: z.object({ id: z.union([z.number(), z.string()]) }).optional(),
-})
-
-const GitLabRateLimitSchema = z.object({
-  object_attributes: z.object({ action: z.string().optional() }).optional(),
-  group: z.object({ path: z.string().optional() }).optional(),
-  project_namespace: z.string().optional(),
-  project: z.object({
-    path_with_namespace: z.string().optional(),
-  }).optional(),
-})
-
-// ─── Plan limits ──────────────────────────────────────────────────
-
 type Plan = 'free' | 'team' | 'business'
+const PLAN_LIMITS: Record<Plan, number> = { free: 50, team: 500, business: Infinity }
 
-const PLAN_LIMITS: Record<Plan, number> = {
-  free:     50,
-  team:     500,
-  business: Infinity,
-}
+const GitHubSchema = z.object({
+  action: z.string(),
+  installation: z.object({ id: z.number().int().positive() }),
+  repository: z.object({ id: z.number().int().positive(), full_name: z.string() }),
+  pull_request: z.object({
+    number: z.number().int().positive(),
+    head: z.object({ sha: z.string().min(1) }),
+  }),
+})
+const GitLabSchema = z.object({
+  object_attributes: z.object({
+    action: z.string().optional(),
+    iid: z.number().int().positive(),
+    last_commit: z.object({ id: z.string().min(1) }),
+  }),
+  project: z.object({ id: z.number().int().positive(), path_with_namespace: z.string() }),
+})
+const BitbucketSchema = z.object({
+  repository: z.object({ full_name: z.string().regex(/^[^/]+\/[^/]+$/) }),
+  pullrequest: z.object({
+    id: z.number().int().positive(),
+    source: z.object({ commit: z.object({ hash: z.string().min(1) }) }),
+  }),
+})
 
-/**
- * Rate limiting middleware using atomic DB counters.
- *
- * Uses INSERT ... ON CONFLICT DO UPDATE to atomically increment the
- * per-org monthly counter, eliminating the KV read-increment-write
- * race condition. KV is kept only for plan caching.
- *
- * - Free:     hard block at 50 PRs/month (return 429)
- * - Team:     allow up to 500 PRs, then track overage ($0.05/PR)
- * - Business: always pass through (unlimited)
- */
 export async function rateLimit(c: Context<AppEnv>, next: Next) {
-  const event = c.req.header('X-GitHub-Event') || c.req.header('X-Gitlab-Event')
-  const isGitHub = !!c.req.header('X-GitHub-Event')
-
-  if (event !== 'pull_request' && event !== 'Merge Request Hook') {
+  const provider = c.req.path.endsWith('/github')
+    ? 'github'
+    : c.req.path.endsWith('/gitlab')
+      ? 'gitlab'
+      : 'bitbucket'
+  const event = c.req.header(
+    provider === 'github'
+      ? 'X-GitHub-Event'
+      : provider === 'gitlab'
+        ? 'X-Gitlab-Event'
+        : 'X-Event-Key',
+  )
+  if (
+    (provider === 'github' && event !== 'pull_request') ||
+    (provider === 'gitlab' && event !== 'Merge Request Hook') ||
+    (provider === 'bitbucket' &&
+      !['pullrequest:created', 'pullrequest:updated'].includes(event ?? ''))
+  )
     return next()
-  }
 
-  const rawBody = c.get('rawBody')
-  if (!rawBody) return next()
-
-  let rawPayload: unknown
+  let orgKey: string
+  let externalRepoId: string
+  let namespace: string
+  let reviewNumber: number
+  let headSha: string
   try {
-    rawPayload = JSON.parse(rawBody)
+    const payload: unknown = JSON.parse(c.get('rawBody'))
+    if (provider === 'github') {
+      const parsed = GitHubSchema.parse(payload)
+      if (!['opened', 'synchronize', 'reopened'].includes(parsed.action)) return next()
+      namespace = String(parsed.installation.id)
+      orgKey = `gh:${namespace}`
+      externalRepoId = String(parsed.repository.id)
+      reviewNumber = parsed.pull_request.number
+      headSha = parsed.pull_request.head.sha
+    } else if (provider === 'gitlab') {
+      const parsed = GitLabSchema.parse(payload)
+      if (!['open', 'reopen', 'update'].includes(parsed.object_attributes.action ?? 'update'))
+        return next()
+      namespace = parsed.project.path_with_namespace.split('/')[0]
+      if (!namespace) throw new Error('Missing namespace')
+      orgKey = `gl:${namespace}`
+      externalRepoId = String(parsed.project.id)
+      reviewNumber = parsed.object_attributes.iid
+      headSha = parsed.object_attributes.last_commit.id
+    } else {
+      const parsed = BitbucketSchema.parse(payload)
+      namespace = parsed.repository.full_name.split('/')[0]
+      orgKey = `bb:${namespace}`
+      externalRepoId = parsed.repository.full_name
+      reviewNumber = parsed.pullrequest.id
+      headSha = parsed.pullrequest.source.commit.hash
+    }
   } catch {
-    return c.json({ error: 'Invalid JSON payload' }, 400)
+    return c.json({ error: 'Invalid webhook payload' }, 400)
   }
 
-  // ── 1. Validate payload and extract orgKey ─────────────────────
-  let orgKey: string | undefined
-
-  if (isGitHub) {
-    const parsed = GitHubRateLimitSchema.safeParse(rawPayload)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid GitHub payload', details: parsed.error.flatten() }, 400)
-    }
-    const { action, installation } = parsed.data
-    if (!['opened', 'synchronize', 'reopened'].includes(action)) return next()
-    if (!installation?.id) {
-      console.error('❌ Missing installation.id in GitHub rate-limit check')
-      return c.json({ error: 'Missing installation ID' }, 400)
-    }
-    orgKey = `gh:${installation.id}`
-  } else {
-    const parsed = GitLabRateLimitSchema.safeParse(rawPayload)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid GitLab payload', details: parsed.error.flatten() }, 400)
-    }
-    const { object_attributes, group, project_namespace, project } = parsed.data
-    const action = object_attributes?.action ?? 'update'
-    if (!['open', 'reopen', 'update'].includes(action)) return next()
-
-    const namespace =
-      group?.path ??
-      project_namespace ??
-      project?.path_with_namespace?.split('/')[0]
-
-    if (!namespace) {
-      console.error('❌ Cannot determine GitLab namespace for rate limiting — rejecting')
-      return c.json({ error: 'Cannot determine organization for rate limiting' }, 400)
-    }
-    orgKey = `gl:${namespace}`
-  }
-
-  // ── 2. Atomic increment via DB (eliminates race condition) ──────
+  const sql = postgres(c.env.DATABASE_URL, { max: 1 })
   const monthKey = new Date().toISOString().slice(0, 7)
-
-  let result: { used: number; overage_used: number; plan: Plan }
-
+  const reservationKey = JSON.stringify([orgKey, externalRepoId, reviewNumber, headSha])
   try {
-    const sql = postgres(c.env.DATABASE_URL, { max: 1 })
-
-    // Fetch plan: KV cache first (1h TTL), fallback to DB query
-    const planCacheKey = `plan:${orgKey}`
-    const cachedPlan = await c.env.RATE_LIMIT_KV.get<Plan>(planCacheKey, 'json')
-    const plan = cachedPlan ?? await fetchPlan(sql, isGitHub, orgKey, rawPayload as Record<string, unknown>)
-
-    if (!cachedPlan) {
-      // Fire-and-forget: don't block the request on cache write
-      c.env.RATE_LIMIT_KV.put(planCacheKey, JSON.stringify(plan), { expirationTtl: 3600 })
-        .catch(() => {/* non-fatal */})
-    }
-
-    const limit = PLAN_LIMITS[plan]
-
-    // Atomic upsert: increment used (and overage_used if past limit)
-    const rows = await sql<{ used: number; overage_used: number; plan: Plan }[]>`
+    const outcome = await sql.begin(async (transaction) => {
+      // postgres 3.4's Omit-based TransactionSql type drops its runtime call signature.
+      const tx = transaction as unknown as typeof sql
+      // Read the authoritative plan so billing changes apply immediately.
+      const repoRows = await tx<{ plan: Plan | null; is_active: boolean | null }[]>`
+      SELECT o.plan, r.is_active FROM repositories r
+      JOIN organizations o ON o.id = r.org_id
+      WHERE r.provider = ${provider} AND (
+        (${provider} = 'github' AND r.github_repo_id = ${externalRepoId} AND o.github_installation_id = ${namespace}) OR
+        (${provider} = 'gitlab' AND r.gitlab_project_id = ${externalRepoId}) OR
+        (${provider} = 'bitbucket' AND r.bitbucket_repo_id = ${externalRepoId})
+      ) LIMIT 1
+    `
+      if (repoRows[0]?.is_active === false) {
+        return 'inactive' as const
+      }
+      let plan = repoRows[0]?.plan
+      if (!plan) {
+        const orgRows = await tx<{ plan: Plan | null }[]>`
+        SELECT plan FROM organizations WHERE
+          (${provider} = 'github' AND github_installation_id = ${namespace}) OR
+          (${provider} = 'gitlab' AND gitlab_namespace = ${namespace}) OR
+          (${provider} = 'bitbucket' AND bitbucket_workspace = ${namespace})
+        LIMIT 1
+      `
+        plan = orgRows[0]?.plan ?? 'free'
+      }
+      const limit = PLAN_LIMITS[plan]
+      await tx`
       INSERT INTO rate_limits (org_key, month_key, plan, used, overage_used, updated_at)
-      VALUES (${orgKey}, ${monthKey}, ${plan}, 1, 0, NOW())
-      ON CONFLICT (org_key, month_key) DO UPDATE
-        SET
-          used         = rate_limits.used + 1,
-          overage_used = CASE
-            WHEN rate_limits.used + 1 > ${limit === Infinity ? 999999999 : limit}
-            THEN rate_limits.overage_used + 1
-            ELSE rate_limits.overage_used
-          END,
-          updated_at   = NOW()
-      RETURNING used, overage_used, plan
+      VALUES (${orgKey}, ${monthKey}, ${plan}, 0, 0, NOW())
+      ON CONFLICT (org_key, month_key) DO UPDATE SET plan = EXCLUDED.plan
     `
-
-    await sql.end()
-    result = rows[0]
-  } catch (err) {
-    // DB unavailable — fail open with a warning to avoid blocking all reviews
-    console.error('⚠️ Rate-limit DB query failed, allowing through:', err)
-    return next()
+      const [counter] = await tx<{ used: number }[]>`
+      SELECT used FROM rate_limits WHERE org_key = ${orgKey} AND month_key = ${monthKey} FOR UPDATE
+    `
+      const [existing] = await tx<{ status: string }[]>`
+      SELECT status FROM review_reservations WHERE reservation_key = ${reservationKey}
+    `
+      if (existing?.status === 'reserved') return 'accepted' as const
+      // Trigger retains terminal run idempotency keys. Redelivery must not reserve a
+      // fresh slot for a completed/skipped/failed commit that it will not run again.
+      if (existing) return 'finished' as const
+      if (plan === 'free' && counter.used >= limit) return 'blocked' as const
+      await tx`
+      INSERT INTO review_reservations (reservation_key, org_key, month_key, status)
+      VALUES (${reservationKey}, ${orgKey}, ${monthKey}, 'reserved')
+      ON CONFLICT (reservation_key) DO NOTHING
+    `
+      await tx`
+      UPDATE rate_limits SET used = used + 1,
+        overage_used = CASE WHEN plan = 'team' THEN GREATEST(0, used + 1 - 500) ELSE 0 END,
+        updated_at = NOW()
+      WHERE org_key = ${orgKey} AND month_key = ${monthKey}
+    `
+      return 'accepted' as const
+    })
+    if (outcome === 'inactive')
+      return c.json({ status: 'skipped', reason: 'Repository is inactive' })
+    if (outcome === 'finished')
+      return c.json({ status: 'skipped', reason: 'Commit already processed' })
+    if (outcome === 'blocked') {
+      return c.json({ error: 'Monthly quota reached', plan: 'free', limit: 50 }, 429)
+    }
+    c.set('reservationKey', reservationKey)
+  } catch (error) {
+    console.error('Rate-limit database query failed:', error)
+    return c.json({ error: 'Unable to verify review quota. Please retry.' }, 503)
+  } finally {
+    await sql.end().catch(() => {})
   }
-
-  const { used, overage_used, plan } = result
-  const limit = PLAN_LIMITS[plan]
-
-  // ── 3. Business plan: always pass through ─────────────────────
-  if (plan === 'business' || limit === Infinity) {
-    return next()
-  }
-
-  // ── 4. Free plan: hard block once quota is exhausted ──────────
-  if (plan === 'free' && used > limit) {
-    console.warn(`🛑 Free plan quota exhausted for ${orgKey}: ${used}/${limit}`)
-    return c.json({
-      error: 'Monthly quota reached',
-      plan: 'free',
-      limit,
-      message: `You've used all ${limit} free PR reviews this month. Upgrade at https://reviewbot.app/pricing to continue.`,
-    }, 429)
-  }
-
-  // ── 5. Team plan: allow with overage tracking after 500 ───────
-  if (overage_used > 0) {
-    console.log(`💳 Overage: ${orgKey} — ${overage_used} PRs over quota (total: ${used})`)
-  } else {
-    console.log(`✅ Rate limit: ${orgKey} — ${used}/${limit}`)
-  }
-
   return next()
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────
-
-async function fetchPlan(
-  sql: ReturnType<typeof postgres>,
-  isGitHub: boolean,
-  orgKey: string,
-  payload: Record<string, unknown>,
-): Promise<Plan> {
-  try {
-    if (isGitHub) {
-      const installationId = orgKey.replace('gh:', '')
-      const rows = await sql<{ plan: Plan }[]>`
-        SELECT plan FROM organizations
-        WHERE github_installation_id = ${installationId}
-        LIMIT 1
-      `
-      return rows[0]?.plan ?? 'free'
-    }
-
-    const namespace = orgKey.replace('gl:', '')
-    const projectPath = (payload as { project?: { path_with_namespace?: string } })
-      .project?.path_with_namespace
-
-    if (projectPath) {
-      const rows = await sql<{ plan: Plan }[]>`
-        SELECT o.plan FROM organizations o
-        INNER JOIN repositories r ON r.org_id = o.id
-        WHERE r.full_name = ${projectPath}
-        LIMIT 1
-      `
-      if (rows[0]) return rows[0].plan
-    }
-
-    // Fallback: match by org name / namespace
-    const rows = await sql<{ plan: Plan }[]>`
-      SELECT plan FROM organizations
-      WHERE name = ${namespace}
-      LIMIT 1
-    `
-    return rows[0]?.plan ?? 'free'
-  } catch (err) {
-    console.error('⚠️ Could not fetch plan from DB, defaulting to free:', err)
-    return 'free'
-  }
 }

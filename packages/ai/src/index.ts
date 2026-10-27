@@ -1,12 +1,12 @@
 import { z } from 'zod'
-import { buildSystemPrompt } from './prompts.js'
-import type { ReviewBotConfig } from './config.js'
-import { generateObjectWithFallback } from './providers.js'
+import { buildSystemPrompt } from './prompts'
+import type { ReviewBotConfig } from './config'
+import { generateObjectWithFallback } from './providers'
 
-export * from './config.js'
-export * from './patch.js'
-export * from './profile-generator.js'
-export * from './providers.js'
+export * from './config'
+export * from './patch'
+export * from './profile-generator'
+export * from './providers'
 
 /**
  * Schema for structured review output from Claude.

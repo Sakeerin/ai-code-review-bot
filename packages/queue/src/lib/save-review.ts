@@ -1,14 +1,18 @@
 import {
   type Database,
+  notificationOutbox,
   organizations,
   repositories,
   reviewComments,
+  reviewReservations,
   reviews,
+  and,
   eq,
+  sql,
 } from '@repo/db'
 import type { ReviewResult, ReviewTokenUsage } from '@repo/ai'
-import { reportPRReviewToMeter } from './stripe-meter.js'
-import { sendSlackReviewNotification, type SlackReviewNotificationPayload } from './slack.js'
+import { type SlackReviewNotificationPayload } from './slack.js'
+import { drainNotificationOutbox } from './notification-outbox.js'
 
 export interface FailedReviewInput {
   db: Database
@@ -69,72 +73,135 @@ export interface SaveReviewInput {
   commentsPosted: number
   bugsFound: number
   orgId: string
+  reviewKey: string
+  reservationKey?: string
 }
 
 /**
- * Shared post-review logic: save to DB, report Stripe meter, send Slack.
- * Used by both review-pr and review-merge-request tasks.
+ * Commit the review, quota completion and deliveries together, then attempt delivery.
  */
 export async function saveReviewAndNotify(
   input: SaveReviewInput,
-  slackPayload: Omit<SlackReviewNotificationPayload, 'score' | 'bugsFound' | 'commentsPosted' | 'summary'>,
+  slackPayload: Omit<
+    SlackReviewNotificationPayload,
+    'score' | 'bugsFound' | 'commentsPosted' | 'summary'
+  >,
 ): Promise<void> {
   const {
-    db, repoId, provider, prNumber, prTitle, prAuthor, reviewUrl,
-    reviewResult, persistedComments, commentsPosted, bugsFound, orgId,
+    db,
+    repoId,
+    provider,
+    prNumber,
+    prTitle,
+    prAuthor,
+    reviewUrl,
+    reviewResult,
+    persistedComments,
+    commentsPosted,
+    bugsFound,
+    orgId,
+    reviewKey,
   } = input
 
-  const [savedReview] = await db
-    .insert(reviews)
-    .values({
-      repoId,
-      provider,
-      prNumber,
-      prTitle,
-      prAuthor,
-      reviewUrl,
-      summary: reviewResult.summary,
-      status: 'completed',
-      tokensInput: reviewResult.tokensInput,
-      tokensOutput: reviewResult.tokensOutput,
-      commentsPosted,
-      bugsFound,
-      score: reviewResult.score,
-      completedAt: new Date(),
-    })
-    .returning({ id: reviews.id })
+  const savedReview = await db.transaction(async (tx) => {
+    // Serialize completion counts per organization, including simultaneous PRs.
+    const [orgRecord] = await tx
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .for('update')
+    if (!orgRecord) throw new Error('Review organization no longer exists')
+    const [inserted] = await tx
+      .insert(reviews)
+      .values({
+        repoId,
+        reviewKey,
+        provider,
+        prNumber,
+        prTitle,
+        prAuthor,
+        reviewUrl,
+        summary: reviewResult.summary,
+        status: 'completed',
+        tokensInput: reviewResult.tokensInput,
+        tokensOutput: reviewResult.tokensOutput,
+        commentsPosted,
+        bugsFound,
+        score: reviewResult.score,
+        completedAt: new Date(),
+      })
+      .onConflictDoNothing({ target: reviews.reviewKey })
+      .returning({ id: reviews.id })
 
-  if (persistedComments.length > 0) {
-    await db.insert(reviewComments).values(
-      persistedComments.map((c) => ({
-        reviewId: savedReview.id,
-        file: c.file,
-        line: c.line,
-        severity: c.severity,
-        message: c.message,
-        suggestion: c.suggestion,
-      })),
-    )
-  }
+    if (input.reservationKey) {
+      await tx
+        .update(reviewReservations)
+        .set({ status: 'completed' })
+        .where(eq(reviewReservations.reservationKey, input.reservationKey))
+    }
+    if (!inserted) return null
 
-  const orgRecord = await db
-    .select({ stripeCustomerId: organizations.stripeCustomerId, slackWebhookUrl: organizations.slackWebhookUrl })
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1)
-    .then((rows) => rows[0])
-
-  await reportPRReviewToMeter(orgRecord?.stripeCustomerId ?? null)
-
-  await sendSlackReviewNotification({
-    ...slackPayload,
-    score: reviewResult.score,
-    bugsFound,
-    commentsPosted,
-    summary: reviewResult.summary,
-  }, orgRecord?.slackWebhookUrl).catch((err) => {
-    console.error('Slack notification failed (non-fatal):', err)
+    if (persistedComments.length > 0) {
+      await tx.insert(reviewComments).values(
+        persistedComments.map((c) => ({
+          reviewId: inserted.id,
+          file: c.file,
+          line: c.line,
+          severity: c.severity,
+          message: c.message,
+          suggestion: c.suggestion,
+        })),
+      )
+    }
+    const monthStart = new Date()
+    monthStart.setUTCDate(1)
+    monthStart.setUTCHours(0, 0, 0, 0)
+    const [usage] = await tx
+      .select({ total: sql<number>`count(*)::int` })
+      .from(reviews)
+      .innerJoin(repositories, eq(reviews.repoId, repositories.id))
+      .where(
+        and(
+          eq(repositories.orgId, orgId),
+          eq(reviews.status, 'completed'),
+          sql`${reviews.completedAt} >= ${monthStart}`,
+        ),
+      )
+    if (orgRecord.plan === 'team' && orgRecord.stripeCustomerId && usage.total > 500) {
+      await tx.insert(notificationOutbox).values({
+        id: `stripe:${inserted.id}`,
+        reviewId: inserted.id,
+        kind: 'stripe',
+        payload: {
+          customerId: orgRecord.stripeCustomerId,
+          reviewKey,
+          timestamp: Math.floor(Date.now() / 1000),
+        },
+      })
+    }
+    const webhookUrl = orgRecord.slackWebhookUrl ?? process.env.SLACK_WEBHOOK_URL
+    if (webhookUrl)
+      await tx.insert(notificationOutbox).values({
+        id: `slack:${inserted.id}`,
+        reviewId: inserted.id,
+        kind: 'slack',
+        payload: {
+          webhookUrl,
+          notification: {
+            ...slackPayload,
+            score: reviewResult.score,
+            bugsFound,
+            commentsPosted,
+            summary: reviewResult.summary,
+          },
+        },
+      })
+    return inserted
   })
+  if (savedReview)
+    await drainNotificationOutbox(db, savedReview.id).catch(() => {
+      console.error('Notification delivery deferred to scheduled retry')
+    })
 }
 
 /**
@@ -152,21 +219,12 @@ export async function upsertGitLabRepo(
 ): Promise<typeof repositories.$inferSelect> {
   const { projectId, projectPath, projectWebUrl, rootNamespace } = params
 
-  const existing = await db.query.repositories.findFirst({
-    where: eq(repositories.gitlabProjectId, String(projectId)),
-  })
-  if (existing) return existing
-
-  const orgName = rootNamespace ?? projectPath.split('/')[0] ?? 'GitLab'
-  let org = await db.query.organizations.findFirst({
-    where: eq(organizations.name, orgName),
-  })
-  if (!org) {
-    ;[org] = await db
-      .insert(organizations)
-      .values({ name: orgName, plan: 'free' })
-      .returning()
-  }
+  const orgName = projectPath.split('/')[0] ?? rootNamespace ?? 'GitLab'
+  const [org] = await db
+    .insert(organizations)
+    .values({ name: orgName, gitlabNamespace: orgName, plan: 'free' })
+    .onConflictDoUpdate({ target: organizations.gitlabNamespace, set: { name: orgName } })
+    .returning()
 
   const [repo] = await db
     .insert(repositories)
@@ -178,17 +236,17 @@ export async function upsertGitLabRepo(
       webUrl: projectWebUrl ?? projectPath,
       isActive: true,
     })
+    .onConflictDoUpdate({
+      target: repositories.gitlabProjectId,
+      set: { orgId: org.id, fullName: projectPath, webUrl: projectWebUrl ?? projectPath },
+    })
     .returning()
 
   return repo
 }
 
 /** Format a review comment body with severity badge and optional suggestion. */
-export function formatCommentBody(
-  severity: string,
-  message: string,
-  suggestion?: string,
-): string {
+export function formatCommentBody(severity: string, message: string, suggestion?: string): string {
   let body = `**[${severity.toUpperCase()}]** ${message}`
   if (suggestion) {
     body += `\n\n\`\`\`suggestion\n${suggestion}\n\`\`\``

@@ -3,3 +3,4 @@ export { reviewMergeRequestTask, type ReviewMergeRequestPayload } from './tasks/
 export { syncInstallationTask, type SyncInstallationPayload } from './tasks/sync-installation.js'
 export { reviewBitbucketPRTask, type ReviewBitbucketPRPayload } from './tasks/review-bitbucket-pr.js'
 export { weeklyEmailReportTask } from './tasks/weekly-email-report.js'
+export { retryNotificationsTask } from './tasks/retry-notifications.js'

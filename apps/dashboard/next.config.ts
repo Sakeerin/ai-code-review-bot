@@ -1,9 +1,12 @@
 import type { NextConfig } from 'next'
 import { withSentryConfig } from '@sentry/nextjs'
+import { fileURLToPath } from 'node:url'
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@repo/ui', '@repo/db'],
+  output: process.env.BUILD_STANDALONE === '1' ? 'standalone' : undefined,
+  outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
+  transpilePackages: ['@repo/ui', '@repo/db', '@repo/ai', '@repo/github'],
 }
 
 export default withSentryConfig(nextConfig, {

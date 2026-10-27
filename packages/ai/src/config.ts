@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { parse } from 'yaml'
+import picomatch from 'picomatch'
 
 export const CustomRuleSchema = z.object({
   id: z.string(),
@@ -8,8 +9,8 @@ export const CustomRuleSchema = z.object({
 })
 
 export const LimitsSchema = z.object({
-  max_file_size_lines: z.number().default(500),
-  max_files_per_pr: z.number().default(20),
+  max_file_size_lines: z.number().int().min(1).max(2000).default(500),
+  max_files_per_pr: z.number().int().min(1).max(50).default(20),
 }).default({})
 
 export const ReviewBotConfigSchema = z.object({
@@ -23,6 +24,10 @@ export const ReviewBotConfigSchema = z.object({
 
 export type ReviewBotConfig = z.infer<typeof ReviewBotConfigSchema>
 export type CustomRule = z.infer<typeof CustomRuleSchema>
+
+export function isFileIgnored(filename: string, patterns: string[]): boolean {
+  return patterns.length > 0 && picomatch.isMatch(filename.replace(/\\/g, '/').replace(/^\.\//, ''), patterns, { dot: true })
+}
 
 export function parseReviewBotConfig(ymlString: string | null): ReviewBotConfig {
   if (!ymlString) return ReviewBotConfigSchema.parse({})

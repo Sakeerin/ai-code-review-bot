@@ -4,7 +4,7 @@ import type { Env } from '../types.js'
 /** App-level type for Hono context with env bindings and variables */
 export type AppEnv = {
   Bindings: Env
-  Variables: { rawBody: string }
+  Variables: { rawBody: string; reservationKey: string | undefined }
 }
 
 /**
