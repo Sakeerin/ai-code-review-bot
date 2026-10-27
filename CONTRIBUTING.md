@@ -29,6 +29,10 @@ or Trigger.dev credentials. Git must be available for the extension regression t
 For local development with real services, follow [Self-hosting](docs/SELF_HOSTING.md)
 or the Thai [local guide](RUN-LOCAL.md). Use accounts and credentials you control.
 
+The full Developer Guide is available in [English](DEVELOPER-GUIDE.md) and
+[Thai](DEVELOPER-GUIDE.th.md). Keep both editions in sync when changing commands,
+environment variables, or development/deployment procedures.
+
 ## Before making a larger change
 
 Search [existing issues](https://github.com/Sakeerin/ai-code-review-bot/issues) and

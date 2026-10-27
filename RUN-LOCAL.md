@@ -3,7 +3,7 @@
 > คู่มือทีละขั้นสำหรับรัน **AI Code Review Bot** บนเครื่องตัวเอง ตั้งแต่ติดตั้งจนเห็นผล review จริง
 > เน้น "ทำตามได้ทันที" — เริ่มจากเส้นทางที่เร็วที่สุด (แค่ dashboard + AI) แล้วค่อยเพิ่ม webhook/billing ตามต้องการ
 >
-> 📎 ดูเพิ่ม: [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md) (ละเอียดกว่า) · [SETUP.md](SETUP.md) (ตั้งค่า service ภายนอก) · [README.md](README.md)
+> 📎 ดูเพิ่ม: [คู่มือนักพัฒนาภาษาไทย](DEVELOPER-GUIDE.th.md) · [Developer Guide (English)](DEVELOPER-GUIDE.md) · [SETUP.md](SETUP.md) (ตั้งค่า service ภายนอก) · [README.md](README.md)
 
 ---
 
@@ -25,13 +25,14 @@
 
 ติดตั้งเครื่องมือเหล่านี้ก่อน:
 
-| เครื่องมือ | เวอร์ชัน | ตรวจสอบด้วย |
-|---|---|---|
-| [Bun](https://bun.sh) | ≥ 1.3.0 | `bun --version` |
-| Git | ล่าสุด | `git --version` |
-| Docker Desktop *(ทางเลือก)* | ล่าสุด | `docker --version` |
+| เครื่องมือ                  | เวอร์ชัน | ตรวจสอบด้วย        |
+| --------------------------- | -------- | ------------------ |
+| [Bun](https://bun.sh)       | ≥ 1.3.0  | `bun --version`    |
+| Git                         | ล่าสุด   | `git --version`    |
+| Docker Desktop _(ทางเลือก)_ | ล่าสุด   | `docker --version` |
 
 **ติดตั้ง Bun:**
+
 ```bash
 # macOS / Linux / WSL
 curl -fsSL https://bun.sh/install | bash
@@ -41,6 +42,7 @@ powershell -c "irm bun.sh/install.ps1 | iex"
 ```
 
 **สิ่งที่ต้องมีอย่างน้อยสำหรับรัน local:**
+
 - ✅ AI provider key **อย่างน้อย 1 เจ้า** — OpenAI (`OPENAI_API_KEY`, default) หรือ Anthropic หรือ Gemini
 - ✅ PostgreSQL (ใช้ Docker บนเครื่อง หรือ Supabase ฟรีก็ได้)
 - ✅ GitHub OAuth App (สำหรับล็อกอินเข้า dashboard)
@@ -66,6 +68,7 @@ bun install
 เลือก **วิธีใดวิธีหนึ่ง**
 
 ### วิธี A — PostgreSQL ด้วย Docker (แนะนำสำหรับ local)
+
 ```bash
 # รันเฉพาะ postgres จาก docker-compose
 docker compose up -d postgres
@@ -75,6 +78,7 @@ docker compose up -d postgres
 ```
 
 ### วิธี B — Supabase (ฟรี, ไม่ต้องลง Docker)
+
 1. สร้างโปรเจคที่ [supabase.com](https://supabase.com) (เลือก region Singapore)
 2. ไปที่ **Project Settings → Database → Connection string → URI**
 3. คัดลอก connection string มาใช้เป็น `DATABASE_URL`
@@ -93,6 +97,7 @@ cp .env.example apps/dashboard/.env.local     # ใช้โดย dashboard (Ne
 ### ค่าขั้นต่ำที่ต้องกรอก
 
 **ใน `apps/dashboard/.env.local`:**
+
 ```bash
 DATABASE_URL=postgresql://reviewbot:reviewbot_secret@localhost:5432/reviewbot
 BETTER_AUTH_SECRET=<สุ่มด้วย: openssl rand -hex 32>
@@ -115,6 +120,7 @@ REVIEW_API_KEY=<สุ่มสตริงอะไรก็ได้>
 **ใน `.env` (root):** ใส่ `DATABASE_URL` และ AI key เดียวกัน (เผื่อรัน webhook/queue)
 
 ### สร้าง GitHub OAuth App (สำหรับล็อกอิน)
+
 1. ไปที่ **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
 2. กรอก:
    - **Homepage URL:** `http://localhost:3000`
@@ -134,6 +140,7 @@ bun run db:migrate
 ```
 
 ตรวจสอบว่าตารางถูกสร้าง (เปิด GUI):
+
 ```bash
 bun run db:studio     # เปิด Drizzle Studio ในเบราว์เซอร์
 ```
@@ -143,18 +150,22 @@ bun run db:studio     # เปิด Drizzle Studio ในเบราว์เ�
 ## 6. รันโปรเจค
 
 ### รันเฉพาะ Dashboard (เส้นทางเร็วสุด)
+
 ```bash
 cd apps/dashboard && bun run dev
 ```
+
 เปิด → **http://localhost:3000** แล้วกด **Sign In** เพื่อล็อกอินด้วย GitHub
 
 ### หรือรันทุก app พร้อมกัน
+
 ```bash
 bun run dev
 ```
-| App | URL |
-|---|---|
-| Dashboard | http://localhost:3000 |
+
+| App                    | URL                   |
+| ---------------------- | --------------------- |
+| Dashboard              | http://localhost:3000 |
 | Webhook (Wrangler dev) | http://localhost:8787 |
 
 ---
@@ -162,12 +173,15 @@ bun run dev
 ## 7. ทดสอบว่าทำงาน
 
 ### 7.1 เช็คว่า AI provider พร้อมใช้งาน
+
 ```bash
 curl http://localhost:3000/api/health/ai
 ```
+
 ควรเห็น `"ok": true` และ `"activeProvider": "openai"` (หรือเจ้าที่ตั้งไว้)
 
 ### 7.2 ทดสอบ AI review โดยตรง (ไม่ต้องมี PR)
+
 ส่ง diff เข้า endpoint `/api/review/diff` (ใช้ `REVIEW_API_KEY` ที่ตั้งไว้):
 
 ```bash
@@ -180,9 +194,11 @@ curl -X POST http://localhost:3000/api/review/diff \
     "language": "th"
   }'
 ```
+
 ถ้าได้ JSON กลับมา (`score`, `summary`, `comments[]`, `tokensUsed`) = ระบบ AI ทำงานครบ ✅
 
 ### 7.3 ล็อกอิน dashboard
+
 เข้า http://localhost:3000 → Sign In → ควรเข้าหน้า `/dashboard` ได้
 
 ---
@@ -202,6 +218,7 @@ cd packages/queue && bunx trigger.dev dev     # terminal 2
 cloudflared tunnel --url http://localhost:8787
 #   หรือ: ngrok http 8787
 ```
+
 3. เอา URL จาก tunnel ไปตั้งใน GitHub App → **Webhook URL:** `<tunnel-url>/webhook/github`
 4. ติดตั้ง App บน repo ทดสอบ แล้วเปิด/อัปเดต PR
 5. ตรวจสอบ: terminal webhook เห็น `status: accepted` → Trigger.dev รัน task → มี inline comment บน PR
@@ -210,18 +227,19 @@ cloudflared tunnel --url http://localhost:8787
 
 ## 9. แก้ปัญหาที่พบบ่อย
 
-| อาการ | สาเหตุ | วิธีแก้ |
-|---|---|---|
-| `bun install` ล้มเหลว | Bun เก่ากว่า 1.3.0 | `bun upgrade` |
-| migration error | `DATABASE_URL` ผิด / postgres ไม่ขึ้น | เช็ค connection string / `docker compose up -d postgres` |
-| ล็อกอิน GitHub ไม่ได้ | callback URL ไม่ตรง / ไม่ตั้ง `BETTER_AUTH_SECRET` | callback ต้องเป็น `http://localhost:3000/api/auth/callback/github` |
-| `/api/health/ai` คืน `ok:false` | ไม่ได้ตั้ง AI key เลย | ใส่ `OPENAI_API_KEY` (หรือเจ้าอื่น) ใน `.env.local` |
-| review endpoint คืน 401 | `REVIEW_API_KEY` ไม่ตรง | ใช้ค่าเดียวกับที่ตั้งใน `.env.local` |
-| AI review error | key ผิด / โควตาเต็มทุกเจ้า | เช็ค `/api/health/ai` + ดู credit ของ provider |
-| port 3000 ถูกใช้แล้ว | มีโปรเซสอื่นครองพอร์ต | ปิดโปรเซสนั้น หรือรันด้วยพอร์ตอื่น |
-| dashboard ขึ้น error `@repo/ai not found` | ยังไม่ได้ `bun install` ที่ root | รัน `bun install` ที่โฟลเดอร์ราก |
+| อาการ                                     | สาเหตุ                                             | วิธีแก้                                                            |
+| ----------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------ |
+| `bun install` ล้มเหลว                     | Bun เก่ากว่า 1.3.0                                 | `bun upgrade`                                                      |
+| migration error                           | `DATABASE_URL` ผิด / postgres ไม่ขึ้น              | เช็ค connection string / `docker compose up -d postgres`           |
+| ล็อกอิน GitHub ไม่ได้                     | callback URL ไม่ตรง / ไม่ตั้ง `BETTER_AUTH_SECRET` | callback ต้องเป็น `http://localhost:3000/api/auth/callback/github` |
+| `/api/health/ai` คืน `ok:false`           | ไม่ได้ตั้ง AI key เลย                              | ใส่ `OPENAI_API_KEY` (หรือเจ้าอื่น) ใน `.env.local`                |
+| review endpoint คืน 401                   | `REVIEW_API_KEY` ไม่ตรง                            | ใช้ค่าเดียวกับที่ตั้งใน `.env.local`                               |
+| AI review error                           | key ผิด / โควตาเต็มทุกเจ้า                         | เช็ค `/api/health/ai` + ดู credit ของ provider                     |
+| port 3000 ถูกใช้แล้ว                      | มีโปรเซสอื่นครองพอร์ต                              | ปิดโปรเซสนั้น หรือรันด้วยพอร์ตอื่น                                 |
+| dashboard ขึ้น error `@repo/ai not found` | ยังไม่ได้ `bun install` ที่ root                   | รัน `bun install` ที่โฟลเดอร์ราก                                   |
 
 ### คำสั่งที่ใช้บ่อยตอน dev
+
 ```bash
 bun run dev            # รันทุก app
 bun run db:studio      # ดู/แก้ข้อมูลใน DB
@@ -233,4 +251,4 @@ docker compose down             # ปิด stack
 
 ---
 
-*เมื่อรัน local ได้แล้ว อ่าน [DEVELOPER-GUIDE.md](DEVELOPER-GUIDE.md) ต่อสำหรับการพัฒนาต่อยอดและ deploy*
+_เมื่อรัน local ได้แล้ว อ่าน [คู่มือนักพัฒนาภาษาไทย](DEVELOPER-GUIDE.th.md) ต่อสำหรับการพัฒนาต่อยอดและ deploy_

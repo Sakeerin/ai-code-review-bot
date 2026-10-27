@@ -138,8 +138,9 @@ to its upstream documentation; this repository does not bundle that deployment.
 
 ## Upgrading and operations
 
-Read the [Developer Guide](../DEVELOPER-GUIDE.md) for migrations and current retry
-behavior. Let old review jobs finish, stop old workers, back up your database,
+Read the Developer Guide in [English](../DEVELOPER-GUIDE.md) or
+[Thai](../DEVELOPER-GUIDE.th.md) for migrations and current retry behavior.
+Let old review jobs finish, stop old workers, back up your database,
 apply migrations, and deploy compatible webhook/dashboard/workers together.
 
 Retries for a PR/commit use the same review result and remote comment markers.

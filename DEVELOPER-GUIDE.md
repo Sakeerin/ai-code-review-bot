@@ -1,384 +1,475 @@
-# คู่มือนักพัฒนา (Developer Guide) — AI Code Review Bot
+# Developer Guide — AI Code Review Bot
 
-## การอัปเดตด้านสิทธิ์และความทนทานของงานรีวิว
+Language: **English** | [ภาษาไทย](DEVELOPER-GUIDE.th.md)
 
-ก่อนเริ่ม dashboard, webhook และ queue เวอร์ชันนี้ ให้รัน `bun install` และ
-`bun run db:migrate` กับฐานข้อมูลที่ต้องการใช้งาน Migration `0006` เพิ่มตัวระบุองค์กร
-ของ GitLab/Bitbucket และตารางเก็บผล AI สำหรับทำงานต่อเมื่อ task ต้อง retry
-ให้หยุด worker เวอร์ชันเก่าก่อนสลับ deployment เพื่อไม่ให้รับงานเดียวกันด้วยโค้ดคนละเวอร์ชัน
+Both editions cover the same topics. Update both languages when changing commands,
+environment variables, or procedures. The project uses the [MIT License](LICENSE)
+and can be self-hosted with infrastructure and service accounts you provide.
 
-- Dashboard ต้องมี `GITHUB_APP_ID` และ `GITHUB_APP_PRIVATE_KEY` เพื่อตรวจ installation
-  ผู้เชื่อม installation ต้องเป็นเจ้าของบัญชีส่วนตัวหรือแอดมินองค์กรที่ยังมีสถานะ active
-  สำหรับบัญชีเดิม ให้ลงชื่อเข้าใช้และอนุญาต GitHub อีกครั้งหาก token ยังไม่มี scope `read:org`
-- ตั้ง `BITBUCKET_WEBHOOK_SECRET` เมื่อใช้ Bitbucket หากไม่ตั้ง endpoint จะตอบ `503`
-  และไม่รับงานที่ไม่มีการตรวจลายเซ็น
-- งานรีวิวใช้ concurrency key ต่อ PR และ idempotency key ต่อ commit พร้อมตรวจ marker
-  บนคอมเมนต์ที่โพสต์แล้วก่อน retry และเก็บผล AI ในฐานข้อมูลก่อนโพสต์
-- Migration เติม namespace ให้เฉพาะองค์กรเดิมที่มี provider และ namespace เดียวอย่างชัดเจน
-  ข้อมูลเก่าที่ปะปนข้าม provider ต้องตรวจสอบสิทธิ์และข้อมูลย้อนหลังแยกต่างหาก
+## Review access and job reliability updates
 
-รัน `bun run test` เพื่อตรวจ regression tests ซึ่งใช้ PostgreSQL ในหน่วยความจำ (PGlite)
-โดยไม่เชื่อมฐานข้อมูลจริงหรือเรียกบริการภายนอก และรัน `bun run typecheck` เพื่อตรวจ TypeScript
+Before starting this version of the dashboard, webhook receiver, and queue, run
+`bun install` and `bun run db:migrate` against the intended database. Migration
+`0006` adds GitLab/Bitbucket organization identifiers and durable AI results for
+resuming retried tasks. Stop old workers before switching deployments so different
+versions do not process the same work concurrently.
 
-### การอัปเดต billing, quota และ notification
+- The dashboard needs `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` to verify an
+  installation. The person connecting it must own the personal account or have
+  active administrator membership in the GitHub organization. Existing users may
+  need to sign in and authorize GitHub again if their token lacks `read:org`.
+- Set `BITBUCKET_WEBHOOK_SECRET` when using Bitbucket. Without it, the endpoint
+  returns `503` and does not accept unverified requests.
+- Reviews use a concurrency key per PR and an idempotency key per commit. Tasks
+  check markers on already-published comments before retrying and persist AI
+  results before posting comments.
+- Namespace backfills only apply to existing organizations with one unambiguous
+  provider and namespace. Mixed legacy organizations require a separate ownership
+  and historical-data review.
 
-- Migration `0007` เพิ่มสถานะ subscription, reservation ต่อ PR/commit และ `notification_outbox`
-  รวมทั้งปรับ counter เก่าให้ตรงกับรีวิวที่สำเร็จ ให้รอ task เก่าจบและหยุด worker ก่อน migrate
-- โควตารายเดือนนับ UTC calendar month รวมงานที่จองไว้ในคิว งานที่ข้ามหรือหมด retry จะคืนโควตา
-  webhook ซ้ำของ commit เดิมใช้ reservation เดิม Dashboard แสดง quota รวมงานที่รออยู่
-  เมื่อ task จบหรือหมด retry แล้ว webhook ซ้ำจะไม่สร้างงานหรือจองโควตาเพิ่ม ให้ push commit ใหม่เพื่อเริ่มรีวิวรอบใหม่
-- Team รวม 500 รีวิวสำเร็จต่อเดือน ส่ง meter เฉพาะรีวิวที่เกิน 500 รายการ ราคา $0.05 ต่อรายการ
-  Business ไม่ส่ง meter Checkout ของ Team ต้องมี `STRIPE_OVERAGE_PRICE_ID` เป็น USD 5 cents,
-  monthly, metered และผูก meter ที่ตรงกับ `STRIPE_METER_EVENT_NAME`
-  Team รายปีใช้ flexible billing เพื่อรวม base รายปีกับ overage รายเดือน
-  Subscription เดิมที่สร้างก่อนเพิ่ม metered item ต้องปรับผ่าน Stripe ก่อนคิด overage จริง
-- สถานะ active/trialing/past_due คงสิทธิ์ paid ระหว่างช่วง retry ชำระเงิน ส่วน unpaid/paused/canceled/
-  incomplete จะใช้ free โดย webhook อ่านสถานะล่าสุดจาก Stripe เพื่อป้องกัน event ย้อนลำดับ
-- Deploy task `retry-notifications` บน Trigger.dev ด้วย ระบบจะส่ง Stripe/Slack ที่ค้างทุก 5 นาที
-  retry สูงสุด 10 ครั้ง ดูรายการ `status = 'failed'` ใน `notification_outbox` เพื่อแก้ config แล้ว
-  reset `status = 'pending'`, `attempts = 0`, `next_attempt_at = now()`, `locked_until = NULL` สำหรับส่งใหม่
-  Stripe ใช้ identifier เดิม ส่วน Slack เป็น at-least-once และอาจซ้ำได้หาก response หายหลังรับข้อความ
-- Slack URL รับเฉพาะ HTTPS บน `hooks.slack.com` หรือ `hooks.slack-gov.com` เส้นทาง `/services/...`
-  และไม่ตาม redirect ส่วน config ignore รองรับ glob เช่น `**/*.test.ts` และ `dist/**`
-- รัน `bun run lint`, `bun run typecheck`, `bun test tests` และ dashboard build ก่อน merge
-  CI จะตรวจรายการเหล่านี้และ build Docker ทั้งสอง image
-- ตรวจ invoice กับ Stripe sandbox ด้วย `bun run billing:verify` โดยตั้ง test key และ price IDs
-  ทั้ง monthly/annual ของ Team/Business รวม overage ก่อน คำสั่งปฏิเสธ live key สร้างลูกค้าทดสอบ
-  แบบไม่มี payment method/email ตรวจ invoice preview และลบลูกค้าหลังจบ (ไม่มีการเรียกเก็บเงินจริง)
-  คำสั่งนี้ยังต้องเรียก Stripe จริง จึงไม่รวมใน offline regression tests
-- Docker จะรัน migration ก่อนเปิด dashboard/webhook แต่ queue ยังคงใช้ Trigger.dev แยกต่างหาก
-  ต้อง deploy tasks และตั้ง `DATABASE_URL` ที่ worker บน Trigger.dev เข้าถึงได้ด้วย
+Run `bun run test` for regression tests backed by in-memory PostgreSQL (PGlite).
+They do not connect to a real database or external services. Run
+`bun run typecheck` to check TypeScript.
 
-> คู่มือสำหรับนักพัฒนาที่ต้องการนำโปรเจคนี้ไปรัน พัฒนาต่อ หรือ deploy เอง
-> ครอบคลุมตั้งแต่การเตรียมเครื่อง การตั้งค่า การรัน local การทดสอบ flow ไปจนถึง deploy และแก้ปัญหา
+### Billing, quota, and notification updates
+
+- Migration `0007` adds subscription state, reservations per PR/commit, and
+  `notification_outbox`. It also reconciles old counters with completed reviews.
+  Let old tasks finish and stop workers before applying the migration.
+- Monthly quota uses UTC calendar months and includes reserved work in the queue.
+  Skipped work and exhausted failures release their reservations. Duplicate
+  webhooks for a commit use the same reservation. The dashboard shows quota usage
+  including queued work. Once a task has finished or exhausted retries, duplicate
+  webhooks do not create another job or quota reservation; push a new commit to
+  start another review through a webhook.
+- Team includes 500 completed reviews per month. Only reviews above 500 generate
+  meter events, at $0.05 each. Business does not generate meter events. Team
+  checkout requires `STRIPE_OVERAGE_PRICE_ID` to reference an active monthly
+  metered USD 5-cent price linked to the meter matching `STRIPE_METER_EVENT_NAME`.
+  Annual Team uses flexible billing to combine an annual base price with monthly
+  overage. Subscriptions created before the metered item was added must be updated
+  in Stripe before overage can be billed.
+- `active`, `trialing`, and `past_due` subscriptions retain paid access during
+  payment retries. `unpaid`, `paused`, `canceled`, `incomplete`, and
+  `incomplete_expired` use Free. The webhook reads current Stripe state to avoid
+  applying stale events out of order.
+- Deploy the `retry-notifications` task on Trigger.dev. It retries pending
+  Stripe/Slack deliveries every five minutes, up to ten attempts. Inspect rows
+  with `status = 'failed'` in `notification_outbox`. After fixing configuration,
+  reset `status = 'pending'`, `attempts = 0`, `next_attempt_at = now()`, and
+  `locked_until = NULL` to retry delivery. Stripe uses stable identifiers. Slack
+  delivery is at least once and can duplicate if an acknowledgement is lost.
+- Slack URLs must use HTTPS on `hooks.slack.com` or `hooks.slack-gov.com`, with a
+  `/services/...` path. Delivery does not follow redirects. Ignore rules support
+  glob patterns such as `**/*.test.ts` and `dist/**`.
+- Before merging, run `bun run lint`, `bun run typecheck`, `bun test tests`, and
+  the dashboard build. CI runs those checks and builds both Docker images.
+- Run `bun run billing:verify` to verify invoice previews in Stripe sandbox.
+  Configure a test key and monthly/annual Team and Business price IDs, including
+  overage. The command rejects live keys, creates test customers without payment
+  methods or email addresses, checks previews, and deletes the customers afterward.
+  It does not collect real payments. It contacts Stripe and is separate from the
+  offline regression tests.
+- Docker runs migrations before starting the dashboard/webhook receiver. The
+  queue uses Trigger.dev separately; deploy its tasks and configure a
+  `DATABASE_URL` that the workers can reach.
+
+> This guide covers prerequisites, configuration, local development, testing,
+> deployment, and troubleshooting for developers running or extending the project.
 >
-> 📎 เอกสารที่เกี่ยวข้อง: [README.md](README.md) · [SETUP.md](SETUP.md) (ตั้งค่า service ภายนอกอย่างละเอียด) · [PHASE-SUMMARY.md](PHASE-SUMMARY.md) (สรุปฟีเจอร์) · [implementation-plan.md](implementation-plan.md)
+> Related documentation: [README](README.md), [service setup](SETUP.md) (Thai),
+> [phase summary](PHASE-SUMMARY.md) (Thai), and
+> [implementation plan](implementation-plan.md).
 
----
+## Contents
 
-## สารบัญ
-
-1. [ก่อนเริ่ม: ความรู้และเครื่องมือที่ต้องมี](#1-ก่อนเริ่ม-ความรู้และเครื่องมือที่ต้องมี)
-2. [โครงสร้างโปรเจค](#2-โครงสร้างโปรเจค)
-3. [Quick Start (รัน local ใน 10 นาที)](#3-quick-start-รัน-local-ใน-10-นาที)
-4. [Environment Variables ทั้งหมด](#4-environment-variables-ทั้งหมด)
-5. [การรันแต่ละส่วน (apps/packages)](#5-การรันแต่ละส่วน-appspackages)
-6. [Database & Migration](#6-database--migration)
-7. [คำสั่งที่ใช้บ่อย (Command Cheat Sheet)](#7-คำสั่งที่ใช้บ่อย-command-cheat-sheet)
-8. [ทดสอบ Flow แบบ End-to-End](#8-ทดสอบ-flow-แบบ-end-to-end)
-9. [การ Deploy (Production)](#9-การ-deploy-production)
-10. [Self-Hosted ด้วย Docker](#10-self-hosted-ด้วย-docker)
-11. [คู่มือนักพัฒนาต่อยอด (เพิ่มฟีเจอร์)](#11-คู่มือนักพัฒนาต่อยอด-เพิ่มฟีเจอร์)
+1. [Prerequisites](#1-prerequisites)
+2. [Repository structure](#2-repository-structure)
+3. [Quick start](#3-quick-start)
+4. [Environment variables](#4-environment-variables)
+5. [Running apps and packages](#5-running-apps-and-packages)
+6. [Database and migrations](#6-database-and-migrations)
+7. [Command reference](#7-command-reference)
+8. [End-to-end testing](#8-end-to-end-testing)
+9. [Production deployment](#9-production-deployment)
+10. [Self-hosting with Docker](#10-self-hosting-with-docker)
+11. [Extending the project](#11-extending-the-project)
 12. [Troubleshooting](#12-troubleshooting)
 
----
+## 1. Prerequisites
 
-## 1. ก่อนเริ่ม: ความรู้และเครื่องมือที่ต้องมี
+### Tools
 
-### เครื่องมือที่ต้องติดตั้ง
-
-| เครื่องมือ | เวอร์ชัน | ใช้ทำอะไร |
-|---|---|---|
-| [Bun](https://bun.sh) | ≥ 1.3.0 | runtime + package manager หลัก (กำหนดใน `packageManager`) |
-| Node.js | ≥ 22.0.0 | บาง tool ต้องใช้ (กำหนดใน `engines`) |
-| [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) | latest | dev/deploy Cloudflare Workers (webhook) |
-| Git | — | version control |
-| Docker + Docker Compose | (ทางเลือก) | สำหรับ self-hosted / Postgres local |
+| Tool                      | Version                   | Purpose                                                             |
+| ------------------------- | ------------------------- | ------------------------------------------------------------------- |
+| [Bun](https://bun.sh)     | 1.3.0 to match CI         | Main runtime and package manager, declared in `packageManager`      |
+| Node.js                   | 22.0.0 or newer           | Required by some tools, declared in `engines`                       |
+| Wrangler CLI              | Version from the lockfile | Available through the `apps/webhook` scripts for Cloudflare Workers |
+| Git                       | —                         | Version control                                                     |
+| Docker and Docker Compose | Optional                  | Self-hosting and a local PostgreSQL database                        |
 
 ```bash
-# ติดตั้ง Bun
+# Install Bun.
 curl -fsSL https://bun.sh/install | bash
 
-# ติดตั้ง Wrangler (global)
-bun add -g wrangler && wrangler login
+# After installing repository dependencies, use the workspace's Wrangler.
+cd apps/webhook
+bunx wrangler login
 ```
 
-### พื้นความรู้ที่ควรมี
-TypeScript · React/Next.js (App Router) · Hono · Drizzle ORM · พื้นฐาน webhook & HMAC · พื้นฐาน Stripe billing
+### Background knowledge
 
-### บัญชี service ภายนอกที่ต้องสมัคร
-Anthropic (Claude API) · Supabase หรือ PostgreSQL · Trigger.dev · GitHub App + OAuth App · (ทางเลือก) GitLab/Bitbucket · Stripe · Cloudflare · Vercel · Sentry/Axiom/Slack/Resend
+TypeScript, React/Next.js App Router, Hono, Drizzle ORM, webhooks/HMAC, and basic
+Stripe billing concepts are useful when working on the corresponding components.
 
-> 🔧 ขั้นตอนสมัครและตั้งค่า service แต่ละตัวแบบละเอียด อยู่ใน [SETUP.md](SETUP.md) — คู่มือนี้เน้นการ "รันและพัฒนา"
+### External accounts
 
----
+The dashboard uses PostgreSQL and GitHub OAuth. Real reviews need at least one AI
+provider. Automatic PR/MR reviews also need Trigger.dev and credentials for the Git
+provider you use. Stripe, Slack, Resend, Sentry, and Axiom are only needed for the
+integrations you enable. Cloudflare and Vercel are deployment options, not
+requirements for running the Docker deployment.
 
-## 2. โครงสร้างโปรเจค
+See [SETUP.md](SETUP.md) (Thai) for service-account configuration and
+[Self-hosting](docs/SELF_HOSTING.md) for an English setup walkthrough.
 
-Monorepo ใช้ **Turborepo + Bun workspaces** (`workspaces: ["apps/*", "packages/*"]`)
+## 2. Repository structure
 
-```
-ai-review-bot/
+The monorepo uses Turborepo and Bun workspaces: `apps/*` and `packages/*`.
+
+```text
+ai-code-review-bot/
 ├── apps/
-│   ├── webhook/          → Hono บน Cloudflare Workers (รับ webhook, ตรวจ signature, rate limit)
-│   ├── dashboard/        → Next.js 15 App Router (auth, billing, ประวัติ, ตั้งค่า)
-│   ├── docs/             → Fumadocs (เว็บเอกสาร)
-│   ├── mcp-server/       → MCP server (ให้ IDE เข้าถึง review)  [V2]
-│   └── vscode-extension/ → ส่วนขยาย VS Code (review ก่อน push) [V2]
+│   ├── webhook/          Cloudflare Workers/Bun receiver, signatures, quotas
+│   ├── dashboard/        Next.js 15, auth, billing, history, settings
+│   ├── docs/             Fumadocs site
+│   ├── mcp-server/       MCP tools for IDE clients
+│   └── vscode-extension/ VS Code reviews before pushing
 ├── packages/
-│   ├── ai/               → เชื่อม Claude, prompt, config parser, profile generator
-│   ├── github/           → GitHub App API client
-│   ├── gitlab/           → GitLab API client
-│   ├── bitbucket/        → Bitbucket API client [V2]
-│   ├── db/               → Drizzle schema + client + Better Auth config
-│   ├── queue/            → Trigger.dev tasks (review jobs)
-│   └── ui/               → shared shadcn/ui components
+│   ├── ai/               AI providers, prompts, config, profile generation
+│   ├── github/           GitHub App API client
+│   ├── gitlab/           GitLab API client
+│   ├── bitbucket/        Bitbucket API client
+│   ├── db/               Drizzle schema/client and Better Auth configuration
+│   ├── queue/            Trigger.dev review and scheduled tasks
+│   └── ui/               Shared UI package
 ├── Dockerfile.webhook / Dockerfile.dashboard / docker-compose.yml
-├── turbo.json            → pipeline config (build/dev/typecheck/lint)
-├── .env.example          → ตัวอย่าง env ทั้งหมด
-└── package.json          → root scripts + workspaces
+├── turbo.json            Build, development, and validation pipelines
+├── .env.example          Example environment variables
+└── package.json          Root scripts and workspaces
 ```
 
-**Workspace package names:** `@repo/ai`, `@repo/github`, `@repo/gitlab`, `@repo/bitbucket`, `@repo/db`, `@repo/queue`, `@repo/ui`
+Shared workspace names include `@repo/ai`, `@repo/github`, `@repo/gitlab`,
+`@repo/bitbucket`, `@repo/db`, `@repo/queue`, and `@repo/ui`.
 
----
+## 3. Quick start
 
-## 3. Quick Start (รัน local ใน 10 นาที)
+Start with the dashboard and an on-demand AI review. Add webhook processing and
+the queue in [section 5](#5-running-apps-and-packages).
 
-> เป้าหมาย: ให้ dashboard + webhook + queue รันบนเครื่องได้ และเชื่อม Claude review ทำงานจริง
+Run the following from the repository root after cloning:
 
 ```bash
-# 1) clone และติดตั้ง dependencies ทั้ง monorepo
-git clone <repo-url> ai-review-bot
-cd ai-review-bot
-bun install
+# 1. Clone and install the entire monorepo.
+git clone https://github.com/Sakeerin/ai-code-review-bot.git
+cd ai-code-review-bot
+bun install --frozen-lockfile
 
-# 2) สร้างไฟล์ env จากตัวอย่าง
+# 2. Create private environment files.
 cp .env.example .env
-cp .env.example apps/dashboard/.env.local   # dashboard อ่านจาก .env.local
+cp .env.example apps/dashboard/.env.local
 
-# 3) เตรียม database (เลือกอย่างใดอย่างหนึ่ง)
-#    ก) ใช้ Supabase/Postgres ของจริง → ใส่ DATABASE_URL ใน .env
-#    ข) ใช้ Postgres local ด้วย Docker:
+# 3. Fill in both files before running migrations; see section 4.
+#    DATABASE_URL, BETTER_AUTH_SECRET, NEXT_PUBLIC_APP_URL, GitHub OAuth credentials
+#    At least one AI provider key for real reviews
+#    REVIEW_API_KEY for the on-demand review endpoint
+
+# 4. Use an existing PostgreSQL database or start the local Compose database.
 docker compose up -d postgres
-# แล้วตั้ง DATABASE_URL=postgresql://reviewbot:reviewbot_secret@localhost:5432/reviewbot
+# Choose POSTGRES_PASSWORD and point DATABASE_URL in both files at this database.
 
-# 4) สร้างตารางใน database
+# 5. Apply database migrations.
 bun run db:migrate
 
-# 5) ใส่ค่า env ขั้นต่ำที่จำเป็น (ดูหัวข้อ 4)
-#    - DATABASE_URL, BETTER_AUTH_SECRET, GITHUB_CLIENT_ID/SECRET
-#    - AI provider อย่างน้อย 1 เจ้า: OPENAI_API_KEY หรือ ANTHROPIC_API_KEY หรือ GEMINI_API_KEY
-
-# 6) รันทุก app พร้อมกัน
-bun run dev
+# 6. Start the dashboard.
+bun run --cwd apps/dashboard dev
 ```
 
-หลังจากนี้:
-- Dashboard → http://localhost:3000 (Next.js dev)
-- Webhook (Wrangler dev) → ดูพอร์ตที่ terminal แสดง (ปกติ http://localhost:8787)
+The dashboard runs at `http://localhost:3000`. Start the webhook receiver and queue
+separately after configuring provider credentials and Trigger.dev.
 
-> 💡 **ค่า env ขั้นต่ำสำหรับ dev:** ไม่จำเป็นต้องครบทุกตัว — Stripe, Slack, Sentry, Axiom, GitLab, Bitbucket จะ skip เองอย่างนุ่มนวลถ้าไม่ได้ตั้งค่า (โค้ดเช็ค env ก่อนทำงานเสมอ) ตัวที่ "ต้องมี" จริง ๆ คือ `DATABASE_URL` + AI provider อย่างน้อย 1 เจ้า + auth (`BETTER_AUTH_SECRET`, GitHub OAuth)
+For tests without external accounts, run `bun test tests`. The tests use an
+in-memory database and replace external service calls. Unconfigured features are
+unavailable: for example, webhooks reject missing signing secrets, and checkout
+is unavailable without the required Stripe configuration.
 
-> 🤖 **รองรับหลาย AI provider พร้อม fallback อัตโนมัติ:** ตั้งค่าได้หลายเจ้า (Anthropic / OpenAI / Gemini) ระบบจะเลือกใช้ตามลำดับใน `AI_PROVIDER_ORDER` และ **ข้ามไปเจ้าถัดไปอัตโนมัติ** เมื่อเจ้าปัจจุบันไม่ได้ตั้งค่า / โควตาเต็ม / rate limit / error ดูรายละเอียดหัวข้อ [4.1](#41-multi-provider-ai--fallback)
+You can configure multiple AI providers for automatic fallback; see
+[section 4.1](#41-multi-provider-ai--fallback).
 
----
+## 4. Environment variables
 
-## 4. Environment Variables ทั้งหมด
+Environment files have distinct consumers:
 
-มีไฟล์ env 2 จุด:
-- **`.env`** (root) → ใช้โดย webhook (local/Docker) และ queue
-- **`apps/dashboard/.env.local`** → ใช้โดย Next.js dashboard
+- Root `.env`: Bun webhook server, migrations, Docker Compose, and queue scripts.
+- `apps/dashboard/.env.local`: Next.js dashboard.
+- `apps/webhook/.dev.vars`: local Wrangler bindings. Copy the root `.env` and
+  review the values needed by the receiver.
+- Deployed Workers and tasks: configure secrets separately in their service
+  environments.
 
-### กลุ่ม Webhook / Queue (root `.env`)
+### Webhook and queue variables
 
-| ตัวแปร | จำเป็น | คำอธิบาย |
-|---|---|---|
-| `DATABASE_URL` | ✅ | connection string ของ PostgreSQL |
-| `OPENAI_API_KEY` | ✅† | OpenAI key (`sk-...`) — provider หลัก (default) |
-| `ANTHROPIC_API_KEY` | ⬜† | Claude API key (`sk-ant-...`) — fallback |
-| `GEMINI_API_KEY` | ⬜† | Google Gemini key — fallback (รองรับ `GOOGLE_GENERATIVE_AI_API_KEY` ด้วย) |
-| `AI_PROVIDER_ORDER` | ⬜ | ลำดับ provider (default `openai,anthropic,gemini`) |
-| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `GEMINI_MODEL` | ⬜ | override ชื่อ model แต่ละเจ้า |
-| `TRIGGER_SECRET_KEY` | ✅* | Trigger.dev secret (`tr_...`) — จำเป็นถ้าจะให้ job รันบน cloud |
-| `GITHUB_APP_ID` | ✅** | App ID (ตัวเลข) |
-| `GITHUB_APP_PRIVATE_KEY` | ✅** | PEM key แบบ single-line (`\n`) |
-| `GITHUB_WEBHOOK_SECRET` | ✅** | secret สำหรับ verify HMAC |
-| `GITLAB_TOKEN` / `GITLAB_WEBHOOK_SECRET` / `GITLAB_API_URL` | ⬜ | สำหรับรองรับ GitLab |
-| `BITBUCKET_WEBHOOK_SECRET` / `BITBUCKET_USERNAME` / `BITBUCKET_APP_PASSWORD` | ⬜ | สำหรับรองรับ Bitbucket |
-| `SENTRY_DSN` | ⬜ | error tracking |
-| `POSTGRES_PASSWORD` / `WEBHOOK_PORT` / `DASHBOARD_PORT` | ⬜ | สำหรับ Docker self-hosted |
+| Variable                                                                   | Required             | Description                                                  |
+| -------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------ |
+| `DATABASE_URL`                                                             | Yes                  | PostgreSQL connection string                                 |
+| `OPENAI_API_KEY`                                                           | At least one AI key  | OpenAI key; OpenAI is first in the default order             |
+| `ANTHROPIC_API_KEY`                                                        | At least one AI key  | Anthropic/Claude key                                         |
+| `GEMINI_API_KEY`                                                           | At least one AI key  | Gemini key; `GOOGLE_GENERATIVE_AI_API_KEY` is also supported |
+| `AI_PROVIDER_ORDER`                                                        | Optional             | Default: `openai,anthropic,gemini`                           |
+| `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`                          | Optional             | Per-provider model overrides                                 |
+| `TRIGGER_SECRET_KEY`                                                       | For dispatching jobs | Trigger.dev secret for the intended environment              |
+| `TRIGGER_PROJECT_ID`                                                       | For queue dev/deploy | Your own Trigger.dev project reference                       |
+| `GITHUB_APP_ID`                                                            | For GitHub           | Numeric App ID                                               |
+| `GITHUB_APP_PRIVATE_KEY`                                                   | For GitHub           | PEM key; escaped newlines can be represented as `\n`         |
+| `GITHUB_WEBHOOK_SECRET`                                                    | For GitHub           | Webhook HMAC signing secret                                  |
+| `GITLAB_TOKEN`, `GITLAB_WEBHOOK_SECRET`, `GITLAB_API_URL`                  | For GitLab           | API credentials, signing secret, and optional API URL        |
+| `BITBUCKET_WEBHOOK_SECRET`, `BITBUCKET_USERNAME`, `BITBUCKET_APP_PASSWORD` | For Bitbucket        | Signing secret and API credentials                           |
+| `SENTRY_DSN`                                                               | Optional             | Error tracking                                               |
+| `POSTGRES_PASSWORD`, `WEBHOOK_PORT`, `DASHBOARD_PORT`                      | For Docker           | Local database credentials and exposed ports                 |
 
-<sub>\* ถ้าไม่ตั้ง Trigger.dev job จะ trigger ไม่ได้ &nbsp; \*\* จำเป็นเมื่อต้องการรองรับ GitHub จริง &nbsp; † ต้องมี AI provider **อย่างน้อย 1 เจ้า** (ตั้งหลายเจ้าได้เพื่อ fallback)</sub>
-
----
+No single AI provider is mandatory, but at least one key is required for real
+reviews. Jobs cannot be dispatched without the Trigger.dev secret. GitHub App
+credentials are required when using the GitHub integration.
 
 ### 4.1 Multi-Provider AI + Fallback
 
-ระบบรองรับ AI หลายเจ้า และ **เลือกใช้ + fallback อัตโนมัติ** (โค้ดอยู่ที่ [packages/ai/src/providers.ts](packages/ai/src/providers.ts))
+The implementation is in
+[packages/ai/src/providers.ts](packages/ai/src/providers.ts).
 
-**หลักการทำงาน:**
-1. อ่านลำดับจาก `AI_PROVIDER_ORDER` (default `openai,anthropic,gemini`)
-2. **เลือกเฉพาะเจ้าที่ตั้ง API key ไว้** — เจ้าที่ไม่ได้ตั้งค่าจะถูกข้ามอัตโนมัติ
-3. เรียกเจ้าแรกก่อน ถ้า **ล้มเหลว** จะ fallback ไปเจ้าถัดไปตามกรณี:
+1. Read provider order from `AI_PROVIDER_ORDER`, defaulting to
+   `openai,anthropic,gemini`.
+2. Include only providers with configured API keys.
+3. Try the first configured provider, then apply the following fallback behavior:
 
-| กรณี error | fallback ไปเจ้าถัดไป? | retry job ภายหลัง? (ถ้าเป็นเจ้าสุดท้าย) |
-|---|---|---|
-| โควตาเต็ม / rate limit (429, "quota", "exceeded") | ✅ | ✅ |
-| auth ผิด (401/403, "api key", "unauthorized") | ✅ | ❌ |
-| server error (5xx) | ✅ | ✅ |
-| schema/request ผิด (400) | ❌ (ผิดเหมือนกันทุกเจ้า) | ❌ |
-| network/timeout | ✅ | ✅ |
+| Failure                                                      | Try the next provider? | Retry the job later if this is the last provider? |
+| ------------------------------------------------------------ | ---------------------- | ------------------------------------------------- |
+| Quota/rate limit: 429 or matching quota messages             | Yes                    | Yes                                               |
+| Authentication/permission: 401/403 or matching auth messages | Yes                    | No                                                |
+| Server error: 5xx                                            | Yes                    | Yes                                               |
+| Invalid schema/request: 400                                  | No                     | No                                                |
+| Network/timeout                                              | Yes                    | Yes                                               |
 
-4. ถ้าทุกเจ้าล้มเหลว → โยน `ReviewError` (retryable ตามสาเหตุสุดท้าย)
-5. ผลลัพธ์ที่คืนมามี field `provider` บอกว่าเจ้าไหนเป็นคนตอบ (บันทึกใน review ด้วย)
+4. If providers fail, throw `ReviewError`, with retryability determined by the
+   final failure classification.
+5. The fallback helper returns a `provider` field identifying the AI provider.
+   The `provider` column in the `reviews` table identifies the Git provider.
 
-**ตัวอย่างการตั้งค่า:**
+Example configuration:
+
 ```bash
-# ค่าเริ่มต้น: ใช้ OpenAI เป็นหลัก, มี Anthropic + Gemini สำรองเมื่อโควตาเต็ม
+# OpenAI first, with Anthropic and Gemini as fallback providers.
 AI_PROVIDER_ORDER=openai,anthropic,gemini
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GEMINI_API_KEY=AI...
 
-# หรือใช้ Gemini เป็นหลัก (ราคาถูกกว่า) แล้ว fallback ไป OpenAI
+# Alternatively, try Gemini before OpenAI.
 AI_PROVIDER_ORDER=gemini,openai
 GEMINI_API_KEY=AI...
 OPENAI_API_KEY=sk-...
 ```
 
-**ตรวจสอบว่า provider ไหนพร้อมใช้งาน** — เรียก health endpoint:
+Check which providers are configured:
+
 ```bash
 curl http://localhost:3000/api/health/ai
-# {
-#   "ok": true,
-#   "order": "openai,anthropic,gemini",
-#   "activeProvider": "openai",
-#   "providers": [
-#     { "name": "openai", "envVar": "OPENAI_API_KEY", "configured": true },
-#     { "name": "anthropic", "envVar": "ANTHROPIC_API_KEY", "configured": false },
-#     { "name": "gemini", "envVar": "...", "configured": false }
-#   ]
-# }
 ```
 
-> ⚠️ อย่าลืมตั้ง key เหล่านี้ใน **Trigger.dev dashboard** ด้วย เพราะ review job รันบน Trigger.dev cloud (ไม่ใช่บน webhook)
+Example response:
 
-### กลุ่ม Dashboard (`apps/dashboard/.env.local`)
+```json
+{
+  "ok": true,
+  "order": "openai,anthropic,gemini",
+  "activeProvider": "openai",
+  "providers": [
+    { "name": "openai", "envVar": "OPENAI_API_KEY", "configured": true },
+    { "name": "anthropic", "envVar": "ANTHROPIC_API_KEY", "configured": false },
+    {
+      "name": "gemini",
+      "envVar": "GEMINI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY",
+      "configured": false
+    }
+  ]
+}
+```
 
-| ตัวแปร | จำเป็น | คำอธิบาย |
-|---|---|---|
-| `DATABASE_URL` | ✅ | ชี้ไป DB เดียวกับ webhook |
-| `BETTER_AUTH_SECRET` | ✅ | สุ่มด้วย `openssl rand -hex 32` |
-| `NEXT_PUBLIC_APP_URL` | ✅ | URL ของ dashboard (เช่น `http://localhost:3000`) |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | ✅ | OAuth App สำหรับล็อกอิน |
-| `GITHUB_APP_SLUG` | ⬜ | slug ของ GitHub App (ใช้ในลิงก์ install) |
-| `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | ⬜ | billing (test mode ใช้ `sk_test_`/`pk_test_`) |
-| `STRIPE_WEBHOOK_SECRET` | ⬜ | verify Stripe webhook (`whsec_...`) |
-| `STRIPE_METER_ID` / `STRIPE_METER_EVENT_NAME` | ⬜ | usage-based metering (event name เช่น `pr_review`) |
-| `STRIPE_TEAM_PRICE_ID` / `STRIPE_BUSINESS_PRICE_ID` | ⬜ | price รายเดือน |
-| `STRIPE_TEAM_ANNUAL_PRICE_ID` / `STRIPE_BUSINESS_ANNUAL_PRICE_ID` | ⬜ | price รายปี (ลด 20%) |
-| `STRIPE_OVERAGE_PRICE_ID` | ⬜ | price overage ($0.05/PR) |
-| `SLACK_WEBHOOK_URL` | ⬜ | fallback Slack webhook (org สามารถตั้งเองได้) |
-| `RESEND_API_KEY` / `EMAIL_FROM` | ⬜ | weekly email report |
-| `SUPPORT_EMAIL` | ⬜ | รับ enterprise lead |
-| `AXIOM_TOKEN` / `SENTRY_DSN` | ⬜ | observability |
-| `REVIEW_API_KEY` | ⬜ | Bearer token ปกป้อง endpoint `/api/review/diff` (ใช้กับ VS Code ext / MCP) |
+Configure these keys in the Trigger.dev environment as well: deployed review
+jobs run in workers, not inside the webhook receiver.
 
-> ตัวอย่างค่าทั้งหมดดูได้ที่ [.env.example](.env.example)
+### Dashboard variables
 
----
+| Variable                                                         | Required                       | Description                                                                               |
+| ---------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                   | Yes                            | Same database as the webhook receiver                                                     |
+| `BETTER_AUTH_SECRET`                                             | Yes                            | Generate with `openssl rand -hex 32`                                                      |
+| `NEXT_PUBLIC_APP_URL`                                            | Yes                            | Dashboard origin, such as `http://localhost:3000`                                         |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`                       | For sign-in                    | GitHub OAuth App credentials                                                              |
+| `GITHUB_APP_SLUG`                                                | Optional                       | App slug used in installation links                                                       |
+| `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`                        | For connecting installations   | Dashboard installation ownership verification                                             |
+| `WEBHOOK_BASE_URL`                                               | Optional                       | Public receiver URL shown in setup instructions                                           |
+| `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`        | For billing                    | Use test-mode keys for development                                                        |
+| `STRIPE_WEBHOOK_SECRET`                                          | For billing webhooks           | Stripe signing secret                                                                     |
+| `STRIPE_METER_ID`, `STRIPE_METER_EVENT_NAME`                     | For metering                   | Meter configuration; for example, event name `pr_review`                                  |
+| `STRIPE_TEAM_PRICE_ID`, `STRIPE_BUSINESS_PRICE_ID`               | For monthly checkout           | Monthly base prices                                                                       |
+| `STRIPE_TEAM_ANNUAL_PRICE_ID`, `STRIPE_BUSINESS_ANNUAL_PRICE_ID` | For annual checkout            | Annual base prices                                                                        |
+| `STRIPE_OVERAGE_PRICE_ID`                                        | For Team checkout              | $0.05-per-review monthly metered price                                                    |
+| `SLACK_WEBHOOK_URL`                                              | Optional; configure in workers | Fallback URL; organizations can configure their own                                       |
+| `RESEND_API_KEY`, `EMAIL_FROM`                                   | Optional; configure in workers | Weekly email reports                                                                      |
+| `SUPPORT_EMAIL`                                                  | Reserved for future use        | The current enterprise endpoint logs leads but does not email them                        |
+| `AXIOM_TOKEN`, `SENTRY_DSN`                                      | Optional                       | Observability settings                                                                    |
+| `REVIEW_API_KEY`                                                 | For on-demand diff review      | Shared Bearer key for `/api/review/diff` and the extension; MCP uses credentials directly |
 
-## 5. การรันแต่ละส่วน (apps/packages)
+See [.env.example](.env.example) for the complete example configuration.
 
-### รันทั้งหมดพร้อมกัน
+## 5. Running apps and packages
+
+### All development scripts
+
 ```bash
-bun run dev          # turbo run dev — รันทุก app ที่มี dev script
+bun run dev
 ```
 
-### รันแยกเฉพาะส่วน
+This runs the workspace `dev` scripts through Turbo. Configure the services those
+scripts require before using it, including the queue's Trigger.dev project.
 
-**Dashboard (Next.js):**
+### Individual components
+
+Run these examples from the repository root unless a command changes directory.
+
+**Dashboard:**
+
 ```bash
-cd apps/dashboard && bun run dev      # → http://localhost:3000
+cd apps/dashboard && bun run dev
+# http://localhost:3000
 ```
 
-**Webhook (Cloudflare Workers local):**
+**Webhook receiver with local Cloudflare Workers:**
+
 ```bash
-cd apps/webhook && bunx wrangler dev  # → http://localhost:8787
-# health check:
-curl http://localhost:8787/health     # {"status":"ok"}
+cp .env apps/webhook/.dev.vars
+bun run --cwd apps/webhook dev
+curl http://localhost:8787/health
+# {"status":"ok"}
 ```
 
-**Queue (Trigger.dev tasks) — โหมด dev:**
+Check the Wrangler terminal output for the actual port.
+
+**Queue in development:**
+
 ```bash
-cd packages/queue && bunx trigger.dev dev
-# จะ connect ไป Trigger.dev cloud และรัน task บนเครื่อง (hot reload)
+bun run --cwd packages/queue dev
 ```
 
-**Docs (Fumadocs):**
+The script loads the root `.env`, connects to Trigger.dev, and runs local tasks
+with hot reload. Configure `TRIGGER_PROJECT_ID` and the development secret first.
+
+**Documentation site:**
+
 ```bash
 cd apps/docs && bun run dev
 ```
 
-**MCP Server (V2):**
+The current script uses port `3001`.
+
+**MCP server:**
+
 ```bash
-cd apps/mcp-server && bun run src/index.ts
+bun run --cwd apps/mcp-server dev
 ```
 
-**VS Code Extension (V2):**
-เปิดโฟลเดอร์ `apps/vscode-extension` ใน VS Code แล้วกด `F5` (Run Extension)
-ต้องตั้งค่า `reviewbot.apiUrl` + `reviewbot.apiKey` ใน settings ให้ชี้ไป dashboard ที่รัน `/api/review/diff`
+**VS Code extension:**
 
----
-
-## 6. Database & Migration
-
-ORM: **Drizzle** (schema อยู่ที่ [packages/db/src/schema.ts](packages/db/src/schema.ts))
+Compile the extension, open `apps/vscode-extension` in VS Code, and press `F5` to
+run the extension:
 
 ```bash
-# สร้างไฟล์ migration จากการแก้ schema
+bun run --cwd apps/vscode-extension compile
+```
+
+Set `reviewbot.apiUrl` and `reviewbot.apiKey` to your dashboard and its
+`/api/review/diff` shared key. The default URL is `http://localhost:3000`.
+
+**Bun webhook server:**
+
+Run `bun run apps/webhook/src/server.ts` from the root. Set `PORT` in that
+process's environment to an unused port, such as `3002`, if the dashboard already
+uses port `3000`. The docs site uses `3001` in its current script.
+
+## 6. Database and migrations
+
+The project uses Drizzle. The schema is in
+[packages/db/src/schema.ts](packages/db/src/schema.ts).
+
+```bash
+# Generate a migration after changing the schema.
 bun run db:generate
 
-# รัน migration เข้า DB
+# Apply migrations to the configured database.
 bun run db:migrate
 
-# push schema ตรง ๆ (dev เร็ว ๆ ไม่สร้างไฟล์ migration)
+# Push the schema directly to a disposable development database.
 bun run db:push
 
-# เปิด Drizzle Studio (GUI ดู/แก้ข้อมูล)
+# Open the database GUI.
 bun run db:studio
 ```
 
-> หลังแก้ `schema.ts` ทุกครั้ง: รัน `db:generate` แล้ว `db:migrate` (หรือใช้ `db:push` ตอน dev)
-> ตารางหลัก: `organizations`, `repositories`, `reviews`, `reviewComments`, `userOrganizations`, `rateLimits`, `stripeWebhookEvents` + ตาราง Better Auth (`user`, `session`, `account`, `verification`)
+After changing `schema.ts`, generate and apply a migration. `db:push` is an option
+for disposable development databases. Commit migrations and snapshots; do not
+rewrite migrations that have already been published.
 
----
+Main SQL tables include `organizations`, `repositories`, `reviews`,
+`review_comments`, `user_organizations`, `rate_limits`, `stripe_webhook_events`,
+`review_runs`, `review_reservations`, and `notification_outbox`. Better Auth uses
+`user`, `session`, `account`, and `verification`.
 
-## 7. คำสั่งที่ใช้บ่อย (Command Cheat Sheet)
+## 7. Command reference
 
 ```bash
-# ─── ติดตั้ง / dev ───
-bun install                  # ติดตั้ง dependencies ทั้ง monorepo
-bun run dev                  # รันทุก app
-bun run build                # build ทุก app (turbo)
-bun run typecheck            # ตรวจ type ทั้ง monorepo
-bun run lint                 # lint ทั้ง monorepo
-bun run format               # prettier จัดรูปแบบ
+# Installation and development
+bun install                   # Install workspace dependencies.
+bun run dev                   # Run development scripts.
+bun run build                 # Run workspace build scripts through Turbo.
+bun run typecheck             # Check workspace TypeScript.
+bun run lint                  # Lint the repository.
+bun test tests                # Run offline regression tests.
+bun run billing:verify        # Verify sandbox invoices with Stripe test credentials.
+bun run format                # Format with Prettier.
 
-# ─── database ───
-bun run db:generate          # สร้าง migration
-bun run db:migrate           # รัน migration
-bun run db:push              # push schema (dev)
-bun run db:studio            # GUI
+# Database
+bun run db:generate           # Generate a migration.
+bun run db:migrate            # Apply migrations.
+bun run db:push               # Push schema to a development database.
+bun run db:studio             # Open the GUI.
 
-# ─── deploy ───
-cd apps/webhook && bunx wrangler deploy        # deploy webhook
-cd packages/queue && bunx trigger.dev deploy   # deploy jobs
-cd apps/dashboard && vercel deploy --prod      # deploy dashboard
+# Deployment: run each example from the repository root.
+cd apps/webhook && bunx wrangler deploy
+bun run --cwd packages/queue deploy
+cd apps/dashboard && vercel deploy --prod
 
-# ─── cleanup ───
-bun run clean                # ลบ build + node_modules
+# Cleanup
+bun run clean                 # Remove build artifacts and node_modules.
 ```
 
-> รันคำสั่งเฉพาะ workspace: `bun run --filter @repo/db <script>`
+Run a script for one workspace with `bun run --filter @repo/db <script>`.
 
----
+## 8. End-to-end testing
 
-## 8. ทดสอบ Flow แบบ End-to-End
+### Method 1: Review a diff directly
 
-### วิธีที่ 1: ทดสอบ AI review โดยตรง (ไม่ต้องตั้ง webhook)
-ใช้ endpoint `POST /api/review/diff` (ต้องตั้ง `REVIEW_API_KEY`) ส่ง unified diff เข้าไป:
+Configure `REVIEW_API_KEY` and send a unified diff to `POST /api/review/diff`.
+The shell variable in this example must contain the same key as the server:
 
 ```bash
 curl -X POST http://localhost:3000/api/review/diff \
@@ -387,125 +478,171 @@ curl -X POST http://localhost:3000/api/review/diff \
   -d '{
     "diff": "diff --git a/x.ts b/x.ts\n@@ -0,0 +1 @@\n+const x: any = 1\n",
     "profile": "typescript",
-    "language": "th"
+    "language": "en"
   }'
-# คืน: { score, summary, comments[], tokensUsed }
+# Returns: { score, summary, comments[], tokensUsed }
 ```
-นี่คือวิธีเร็วที่สุดในการยืนยันว่า AI provider (เช่น `OPENAI_API_KEY`) + prompt + schema ทำงาน
 
-### วิธีที่ 2: ทดสอบ GitHub webhook เต็มรูปแบบ
-1. ใช้ `wrangler dev` รัน webhook + `trigger.dev dev` รัน queue
-2. เปิด tunnel ให้ GitHub ยิง webhook เข้าเครื่องได้ (เช่น `cloudflared tunnel` หรือ ngrok)
-3. ตั้ง Webhook URL ของ GitHub App ให้ชี้มา tunnel `.../webhook/github`
-4. เปิด/อัปเดต PR ใน repo ที่ติดตั้ง App
-5. ตรวจสอบ:
-   - terminal webhook: เห็น `status: accepted`
-   - Trigger.dev dashboard: task `review-pull-request` รัน
-   - บน PR: มี inline comment ปรากฏ
-   - DB (`db:studio`): มี record ใน `reviews` + `reviewComments`
+This is the shortest path to checking the configured AI provider, prompt, and
+structured output without setting up a webhook.
 
-### วิธีที่ 3: ทดสอบ Stripe webhook (local)
+### Method 2: Exercise the GitHub webhook flow
+
+1. Start the webhook receiver as described in section 5 and run the queue with
+   `bun run --cwd packages/queue dev`.
+2. Expose the receiver through an HTTPS tunnel, such as Cloudflare Tunnel or ngrok.
+3. Set the GitHub App webhook URL to the tunnel's `/webhook/github` endpoint.
+4. Open or update a PR in a repository where the App is installed.
+5. Check the receiver's accepted response, the `review-pull-request` task in
+   Trigger.dev, inline PR comments, and `reviews`/`review_comments` records in
+   Drizzle Studio.
+
+### Method 3: Receive Stripe webhooks locally
+
 ```bash
 stripe listen --forward-to localhost:3000/api/webhooks/stripe
-# ใช้ STRIPE_WEBHOOK_SECRET ที่ stripe listen แสดงให้
 ```
 
----
+Use the signing secret printed by `stripe listen` as the local
+`STRIPE_WEBHOOK_SECRET`.
 
-## 9. การ Deploy (Production)
+## 9. Production deployment
 
-ระบบ deploy แยกเป็น 4 ส่วน:
+The deployment has four independently configured components:
 
-| ส่วน | ไป deploy ที่ | คำสั่ง |
-|---|---|---|
-| Webhook | Cloudflare Workers | `cd apps/webhook && bunx wrangler deploy` |
-| Queue (jobs) | Trigger.dev Cloud | `cd packages/queue && bunx trigger.dev deploy` |
-| Dashboard | Vercel | `cd apps/dashboard && vercel deploy --prod` |
-| Database | Supabase (managed) | `bun run db:migrate` |
+| Component        | Example target                       | Command                                     |
+| ---------------- | ------------------------------------ | ------------------------------------------- |
+| Webhook receiver | Cloudflare Workers                   | `cd apps/webhook && bunx wrangler deploy`   |
+| Queue            | Trigger.dev Cloud                    | `bun run --cwd packages/queue deploy`       |
+| Dashboard        | Vercel                               | `cd apps/dashboard && vercel deploy --prod` |
+| Database         | Managed PostgreSQL, such as Supabase | `bun run db:migrate`                        |
 
-### ขั้นตอนหลักก่อน deploy
-1. **Cloudflare KV:** `wrangler kv namespace create RATE_LIMIT_KV` แล้วใส่ `id` ใน [apps/webhook/wrangler.toml](apps/webhook/wrangler.toml)
-2. **Secrets ของ Worker:** ตั้งด้วย `wrangler secret put <KEY>` (ดูรายการใน wrangler.toml: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITLAB_*`, AI keys เช่น `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`GEMINI_API_KEY`, `TRIGGER_SECRET_KEY`, `DATABASE_URL`)
-3. **Trigger.dev env:** ตั้ง env ทั้งหมดใน Trigger.dev dashboard ด้วย (เพราะ task รันบน cloud)
-4. **Vercel env:** ใส่ env กลุ่ม dashboard ใน Project Settings
-5. **อัปเดต callback URLs:** GitHub OAuth callback + Stripe webhook endpoint ให้ชี้ domain production
+### Before deployment
 
-> รายละเอียดทุกขั้นตอน + checklist ก่อน launch อยู่ใน [SETUP.md](SETUP.md) (หัวข้อ 8–13)
+1. Create the Cloudflare KV namespace with
+   `wrangler kv namespace create RATE_LIMIT_KV` and replace its placeholder ID in
+   [apps/webhook/wrangler.toml](apps/webhook/wrangler.toml).
+2. Configure Worker secrets using `wrangler secret put <KEY>` from the webhook
+   workspace. Use the bindings required for the selected Git provider,
+   `TRIGGER_SECRET_KEY`, and `DATABASE_URL`; see `wrangler.toml`.
+3. Set `TRIGGER_PROJECT_ID` before deploying the queue, and configure the
+   credentials its tasks use in the Trigger.dev environment. Workers must be able
+   to reach the database.
+4. Configure dashboard environment variables in the hosting project's settings.
+5. Update GitHub OAuth callbacks and the Stripe webhook endpoint to production
+   URLs.
 
----
+See sections 8–13 of [SETUP.md](SETUP.md) (Thai) for service configuration and
+the launch checklist.
 
-## 10. Self-Hosted ด้วย Docker
+## 10. Self-hosting with Docker
 
-สำหรับลูกค้า Enterprise ที่ต้องการรันในเครื่องตัวเอง (V2) — มี [Dockerfile.webhook](Dockerfile.webhook), [Dockerfile.dashboard](Dockerfile.dashboard), [docker-compose.yml](docker-compose.yml)
+Anyone can self-host under the [MIT License](LICENSE). The repository includes
+[Dockerfile.webhook](Dockerfile.webhook),
+[Dockerfile.dashboard](Dockerfile.dashboard), and
+[docker-compose.yml](docker-compose.yml).
 
 ```bash
-# 1) เตรียม env
+# 1. Configure environment variables.
 cp .env.example .env
-#    ตั้งค่าอย่างน้อย: GITHUB_APP_*, OPENAI_API_KEY (หรือ AI provider อื่น), TRIGGER_SECRET_KEY,
-#    BETTER_AUTH_SECRET, GITHUB_CLIENT_ID/SECRET, POSTGRES_PASSWORD
+# Set the GitHub App/auth credentials, AI provider, Trigger.dev secret,
+# BETTER_AUTH_SECRET, OAuth credentials, and POSTGRES_PASSWORD as needed.
+# For local Docker, set NEXT_PUBLIC_APP_URL=http://localhost:3001.
 
-# 2) build + run ทั้ง stack (postgres + webhook + dashboard + migrate)
+# 2. Build and start PostgreSQL, receiver, dashboard, and migrations.
 docker compose up -d --build
-
-# service ที่ได้:
-#   postgres   → localhost:5432
-#   webhook    → localhost:3000  (Bun server จาก apps/webhook/src/server.ts)
-#   dashboard  → localhost:3001
-#   migrate    → รัน db migrate ครั้งเดียวแล้วจบ
 ```
 
-จุดสำคัญของโหมด self-hosted:
-- webhook ใช้ [apps/webhook/src/server.ts](apps/webhook/src/server.ts) ที่จำลอง Cloudflare KV ด้วย in-memory cache (`createMemoryKV`)
-- database เป็น Postgres ใน container (`DATABASE_URL` ชี้ไป service `postgres`)
-- service `migrate` รัน `bun run --cwd packages/db migrate` อัตโนมัติเมื่อ DB พร้อม
+Default services:
 
----
+| Service          | Endpoint or behavior                          |
+| ---------------- | --------------------------------------------- |
+| PostgreSQL       | `127.0.0.1:5432`                              |
+| Webhook receiver | `http://localhost:3000`, using the Bun server |
+| Dashboard        | `http://localhost:3001`                       |
+| Migrations       | Runs once when the database is ready          |
 
-## 11. คู่มือนักพัฒนาต่อยอด (เพิ่มฟีเจอร์)
+Details of the self-hosted deployment:
 
-### เพิ่ม Convention Profile ใหม่ (เช่น React, Django)
-แก้ [packages/ai/src/prompts.ts](packages/ai/src/prompts.ts) ในฟังก์ชัน `buildSystemPrompt()` — เพิ่ม block convention ของ framework ใหม่ตาม `config.profile`
+- The receiver uses [apps/webhook/src/server.ts](apps/webhook/src/server.ts),
+  whose `createMemoryKV` supplies an in-memory KV-compatible cache.
+- PostgreSQL runs in a container; application database URLs inside Compose use
+  the `postgres` service hostname.
+- The migration service runs `drizzle-kit migrate` in `packages/db` after the
+  database is healthy and before starting the receiver/dashboard.
+- Trigger.dev runs separately. Deploy the tasks and configure a database URL
+  reachable from those workers.
+- Docker does not include a Trigger.dev server or AI model. Selected review
+  code is sent to the configured AI providers.
+- The application's default plans and quotas remain enabled. MIT licensing
+  does not automatically disable runtime quotas.
 
-### เพิ่ม custom rule ต่อ repo
-ผู้ใช้วางไฟล์ `.reviewbot.yml` ใน root ของ repo — parse โดย `parseReviewBotConfig()` ใน [packages/ai/src/config.ts](packages/ai/src/config.ts) โครงสร้าง: `profile`, `language`, `rules[]`, `ignore[]`, `limits`
+## 11. Extending the project
 
-### เพิ่มแพลตฟอร์มใหม่ (เช่น Gitea)
-ทำตามรูปแบบเดิม 4 จุด:
-1. สร้าง `packages/<platform>/` (client + types) เลียนแบบ `packages/gitlab`
-2. เพิ่ม handler ใน `apps/webhook/src/handlers/` + middleware ตรวจ signature
-3. เพิ่ม route ใน [apps/webhook/src/index.ts](apps/webhook/src/index.ts)
-4. เพิ่ม task ใน `packages/queue/src/tasks/` + export ใน [packages/queue/src/index.ts](packages/queue/src/index.ts)
-5. ขยาย `provider` enum + เพิ่มคอลัมน์ id ใน [packages/db/src/schema.ts](packages/db/src/schema.ts)
+### Add a convention profile
 
-### ปรับ logic การ review (กรองไฟล์/limit)
-อยู่ในแต่ละ task เช่น [packages/queue/src/tasks/review-pr.ts](packages/queue/src/tasks/review-pr.ts) — ส่วนกรองไฟล์ (skip ไฟล์ลบ, เกิน max lines, ตรง ignore pattern) และ `max_files_per_pr`
+Update `buildSystemPrompt()` in
+[packages/ai/src/prompts.ts](packages/ai/src/prompts.ts). Add conventions selected
+by `config.profile`, for example for React or Django.
 
-### แก้ schema ของผลลัพธ์ Claude
-แก้ `ReviewSchema` (Zod) ใน [packages/ai/src/index.ts](packages/ai/src/index.ts) — มีผลทั้ง structured output, DB และ UI
+### Add repository-specific rules
 
----
+Users place `.reviewbot.yml` at the root of the repository being reviewed.
+`parseReviewBotConfig()` in [packages/ai/src/config.ts](packages/ai/src/config.ts)
+parses `profile`, `language`, `rules`, `ignore`, and `limits`.
+
+### Add another Git platform
+
+Follow the existing integration pattern in five places:
+
+1. Add `packages/<platform>` with a client and types, following `packages/gitlab`.
+2. Add a webhook handler and signature middleware under `apps/webhook/src`.
+3. Register a route in [apps/webhook/src/index.ts](apps/webhook/src/index.ts).
+4. Add a task in `packages/queue/src/tasks` and export it from
+   [packages/queue/src/index.ts](packages/queue/src/index.ts).
+5. Extend the provider enum and external identity columns in
+   [packages/db/src/schema.ts](packages/db/src/schema.ts).
+
+### Change review filtering and limits
+
+Filtering lives in each review task, for example
+[packages/queue/src/tasks/review-pr.ts](packages/queue/src/tasks/review-pr.ts).
+Review the deleted-file check, changed-line limit, ignore patterns, and
+`max_files_per_pr`.
+
+### Change AI output structure
+
+Update the Zod `ReviewSchema` in
+[packages/ai/src/index.ts](packages/ai/src/index.ts). Consider its effects on
+structured output, persistence, and the UI.
 
 ## 12. Troubleshooting
 
-| อาการ | สาเหตุที่พบบ่อย | วิธีแก้ |
-|---|---|---|
-| `bun install` ล้มเหลว | Bun เวอร์ชันต่ำกว่า 1.3.0 | `bun upgrade` |
-| webhook คืน 401 | signature ไม่ตรง — `GITHUB_WEBHOOK_SECRET` ไม่ตรงกับที่ตั้งใน GitHub App | ตั้ง secret ให้ตรงทั้งสองฝั่ง |
-| webhook คืน 429 | ติด rate limit (free plan 50/เดือน) | upgrade plan หรือเช็คตาราง `rateLimits` |
-| AI review ไม่ทำงาน | ไม่ได้ตั้ง AI key เลย / key ผิด / โควตาเต็มทุกเจ้า | เช็ค `GET /api/health/ai` ว่ามี provider พร้อมใช้งาน (default หลักคือ `OPENAI_API_KEY`) |
-| job ไม่รัน | `TRIGGER_SECRET_KEY` ไม่ตั้ง หรือ `trigger.dev dev`/deploy ไม่ได้รัน | ตั้ง key + รัน task runner |
-| inline comment ไม่ปรากฏ แต่ job สำเร็จ | line number map ไม่ตรง diff | ดู `getModifiedLines()` ใน [packages/ai/src/patch.ts](packages/ai/src/patch.ts) |
-| ล็อกอินไม่ได้ | OAuth callback URL ไม่ตรง / `BETTER_AUTH_SECRET` ไม่ตั้ง | ตั้ง callback `.../api/auth/callback/github` |
-| Stripe webhook ไม่เข้า | signature ไม่ตรง | ใช้ secret จาก `stripe listen` (local) |
-| migration error | `DATABASE_URL` ผิด / DB ไม่ขึ้น | เช็ค connection / `docker compose up -d postgres` |
-| typecheck fail หลังแก้ schema | type ไม่ตรงหลังแก้ schema | `bun run db:generate` แล้ว `bun run typecheck` |
+| Symptom                                     | Common cause                                                             | Action                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `bun install` fails                         | Older Bun version                                                        | Use the repository's Bun version; upgrade if necessary                               |
+| Webhook returns 401                         | Signing secret differs between provider and receiver                     | Match secrets on both sides                                                          |
+| Webhook returns 429                         | Free monthly quota reached                                               | Check `rate_limits` and the organization's plan                                      |
+| AI review does not run                      | Missing/invalid AI keys or exhausted provider quota                      | Check `/api/health/ai`; OpenAI is first by default                                   |
+| Job does not run                            | Missing `TRIGGER_PROJECT_ID`/`TRIGGER_SECRET_KEY`, runner, or deployment | Configure project/key and use queue dev/deploy scripts                               |
+| Webhook returns 503                         | Missing signing secret or unavailable quota database                     | Check provider secret and database connectivity                                      |
+| Checkout returns 503                        | Missing or invalid Stripe price/meter configuration                      | Verify base and metered prices against the billing requirements                      |
+| Notification remains pending/failed         | Service outage or incorrect credentials                                  | Inspect `notification_outbox` and `retry-notifications`                              |
+| No inline comment despite a successful task | Comment line does not map to the diff                                    | Inspect `getModifiedLines()` in [packages/ai/src/patch.ts](packages/ai/src/patch.ts) |
+| Sign-in fails                               | Incorrect OAuth callback or missing auth secret                          | Configure the origin's `/api/auth/callback/github` callback                          |
+| Stripe webhook is rejected                  | Signing secret mismatch                                                  | Use the local secret printed by `stripe listen`                                      |
+| Migration fails                             | Incorrect database URL or unavailable PostgreSQL                         | Check connectivity and start the Compose database if needed                          |
+| Typecheck fails after a schema change       | Types no longer match the schema                                         | Generate/review the migration and fix the affected types                             |
 
-### เคล็ดลับ debug
-- ดู log job แบบ realtime ได้ที่ Trigger.dev dashboard
-- ใช้ `bun run db:studio` ดูข้อมูลใน DB
-- error ที่ production ดูที่ Sentry (ถ้าตั้ง `SENTRY_DSN`)
-- โค้ดส่วนใหญ่เช็ค env ก่อนทำงาน — ถ้าฟีเจอร์หนึ่ง "เงียบ" ไม่ทำงาน ให้เช็คว่าตั้ง env ครบหรือยัง
+### Debugging tips
 
----
+- Read task logs in the Trigger.dev dashboard.
+- Inspect database records with `bun run db:studio`.
+- Check Sentry for production errors if configured.
+- Verify the environment variables required by the specific component. Optional
+  integrations have different behavior when unconfigured; do not assume every
+  feature silently skips missing credentials.
 
-*คู่มือนี้สร้างจากการอ่าน config และโค้ดจริงของโปรเจค หากแก้โครงสร้างหรือ env ควรอัปเดตเอกสารนี้ให้ตรงกัน*
+This guide follows the repository's configuration and code. Keep the
+[Thai edition](DEVELOPER-GUIDE.th.md) in sync when changing the structure or
+environment variables.

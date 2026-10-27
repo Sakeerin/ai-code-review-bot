@@ -142,8 +142,8 @@ customers, verifies invoice previews, and removes those customers afterward.
 - [Code of Conduct](CODE_OF_CONDUCT.md): community expectations.
 - [Security](SECURITY.md): private vulnerability reporting and data handling.
 - [Self-hosting](docs/SELF_HOSTING.md): English deployment guide.
-- [Local setup](RUN-LOCAL.md), [Developer Guide](DEVELOPER-GUIDE.md), and
-  [external service setup](SETUP.md): Thai guides.
+- Developer Guide: [English](DEVELOPER-GUIDE.md) · [ภาษาไทย](DEVELOPER-GUIDE.th.md).
+- [Local setup](RUN-LOCAL.md) and [external service setup](SETUP.md): Thai guides.
 - [Issues](https://github.com/Sakeerin/ai-code-review-bot/issues): bug reports and
   feature requests. Search existing issues before opening a new one.
 
