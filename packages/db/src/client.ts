@@ -29,5 +29,13 @@ export function createDb(databaseUrl?: string, poolSize?: number) {
 
 export type Database = ReturnType<typeof createDb>
 
-// Singleton instance — used by Next.js server components and API routes
-export const db = createDb()
+// Workers receive DATABASE_URL as a request binding. Importing the shared factory
+// must not initialize the Next.js singleton before those bindings are available.
+let singleton: Database | undefined
+export const db = new Proxy({} as Database, {
+  get(_target, property) {
+    singleton ??= createDb()
+    const value = Reflect.get(singleton, property)
+    return typeof value === 'function' ? value.bind(singleton) : value
+  },
+})

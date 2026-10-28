@@ -8,6 +8,26 @@ and can be self-hosted with infrastructure and service accounts you provide.
 
 ## Review access and job reliability updates
 
+Migration `0008` adds a durable dispatch outbox and enforces the Free plan's one
+active repository limit on existing installations. Deploy the queue's
+`retry-review-dispatch` schedule alongside the workers after migrating. Failed
+dispatches retain their quota reservation and retry with the same idempotency key.
+GitHub administration rights are checked again when accessing an organization;
+use the dashboard's Organization selector to switch between installations.
+
+Use Bun **1.4.4** or newer for the updated lockfile; the CI and Docker images use
+1.4.4. Run `bun run audit:security` to reject high/critical dependency advisories.
+
+For Bitbucket, configure `BITBUCKET_API_TOKEN` on the worker using a scoped API
+token with repository read and pull request read/write permissions. New jobs do
+not include API credentials in their payloads. App Passwords have been retired.
+
+Existing paid plans can change plan or billing interval through an invoice
+preview and confirmation. Quotes expire after ten minutes. Stripe confirms the
+payment before the webhook grants new access. A previously configured monthly
+usage meter remains attached for delayed Team usage; Business reviews do not
+generate new meter events. Payment recovery remains available on the Free plan.
+
 Before starting this version of the dashboard, webhook receiver, and queue, run
 `bun install` and `bun run db:migrate` against the intended database. Migration
 `0006` adds GitLab/Bitbucket organization identifiers and durable AI results for
@@ -30,6 +50,12 @@ versions do not process the same work concurrently.
 Run `bun run test` for regression tests backed by in-memory PostgreSQL (PGlite).
 They do not connect to a real database or external services. Run
 `bun run typecheck` to check TypeScript.
+
+Run `bun run test:postgres` to check the real PostgreSQL driver, concurrent locks,
+dispatch leases, and monthly usage accounting. Set `POSTGRES_TEST_URL` to a
+disposable PostgreSQL server using a role with `CREATEDB` rights. The suite creates
+and removes its own database and never falls back to `DATABASE_URL`. CI runs this
+suite against PostgreSQL 16; Stripe and Slack delivery stay disabled.
 
 ### Billing, quota, and notification updates
 
@@ -102,7 +128,7 @@ They do not connect to a real database or external services. Run
 
 | Tool                      | Version                   | Purpose                                                             |
 | ------------------------- | ------------------------- | ------------------------------------------------------------------- |
-| [Bun](https://bun.sh)     | 1.3.0 to match CI         | Main runtime and package manager, declared in `packageManager`      |
+| [Bun](https://bun.sh)     | 1.4.4 to match CI         | Main runtime and package manager, declared in `packageManager`      |
 | Node.js                   | 22.0.0 or newer           | Required by some tools, declared in `engines`                       |
 | Wrangler CLI              | Version from the lockfile | Available through the `apps/webhook` scripts for Cloudflare Workers |
 | Git                       | —                         | Version control                                                     |
@@ -219,23 +245,23 @@ Environment files have distinct consumers:
 
 ### Webhook and queue variables
 
-| Variable                                                                   | Required             | Description                                                  |
-| -------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------ |
-| `DATABASE_URL`                                                             | Yes                  | PostgreSQL connection string                                 |
-| `OPENAI_API_KEY`                                                           | At least one AI key  | OpenAI key; OpenAI is first in the default order             |
-| `ANTHROPIC_API_KEY`                                                        | At least one AI key  | Anthropic/Claude key                                         |
-| `GEMINI_API_KEY`                                                           | At least one AI key  | Gemini key; `GOOGLE_GENERATIVE_AI_API_KEY` is also supported |
-| `AI_PROVIDER_ORDER`                                                        | Optional             | Default: `openai,anthropic,gemini`                           |
-| `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`                          | Optional             | Per-provider model overrides                                 |
-| `TRIGGER_SECRET_KEY`                                                       | For dispatching jobs | Trigger.dev secret for the intended environment              |
-| `TRIGGER_PROJECT_ID`                                                       | For queue dev/deploy | Your own Trigger.dev project reference                       |
-| `GITHUB_APP_ID`                                                            | For GitHub           | Numeric App ID                                               |
-| `GITHUB_APP_PRIVATE_KEY`                                                   | For GitHub           | PEM key; escaped newlines can be represented as `\n`         |
-| `GITHUB_WEBHOOK_SECRET`                                                    | For GitHub           | Webhook HMAC signing secret                                  |
-| `GITLAB_TOKEN`, `GITLAB_WEBHOOK_SECRET`, `GITLAB_API_URL`                  | For GitLab           | API credentials, signing secret, and optional API URL        |
-| `BITBUCKET_WEBHOOK_SECRET`, `BITBUCKET_USERNAME`, `BITBUCKET_APP_PASSWORD` | For Bitbucket        | Signing secret and API credentials                           |
-| `SENTRY_DSN`                                                               | Optional             | Error tracking                                               |
-| `POSTGRES_PASSWORD`, `WEBHOOK_PORT`, `DASHBOARD_PORT`                      | For Docker           | Local database credentials and exposed ports                 |
+| Variable                                                  | Required             | Description                                                  |
+| --------------------------------------------------------- | -------------------- | ------------------------------------------------------------ |
+| `DATABASE_URL`                                            | Yes                  | PostgreSQL connection string                                 |
+| `OPENAI_API_KEY`                                          | At least one AI key  | OpenAI key; OpenAI is first in the default order             |
+| `ANTHROPIC_API_KEY`                                       | At least one AI key  | Anthropic/Claude key                                         |
+| `GEMINI_API_KEY`                                          | At least one AI key  | Gemini key; `GOOGLE_GENERATIVE_AI_API_KEY` is also supported |
+| `AI_PROVIDER_ORDER`                                       | Optional             | Default: `openai,anthropic,gemini`                           |
+| `OPENAI_MODEL`, `ANTHROPIC_MODEL`, `GEMINI_MODEL`         | Optional             | Per-provider model overrides                                 |
+| `TRIGGER_SECRET_KEY`                                      | For dispatching jobs | Trigger.dev secret for the intended environment              |
+| `TRIGGER_PROJECT_ID`                                      | For queue dev/deploy | Your own Trigger.dev project reference                       |
+| `GITHUB_APP_ID`                                           | For GitHub           | Numeric App ID                                               |
+| `GITHUB_APP_PRIVATE_KEY`                                  | For GitHub           | PEM key; escaped newlines can be represented as `\n`         |
+| `GITHUB_WEBHOOK_SECRET`                                   | For GitHub           | Webhook HMAC signing secret                                  |
+| `GITLAB_TOKEN`, `GITLAB_WEBHOOK_SECRET`, `GITLAB_API_URL` | For GitLab           | API credentials, signing secret, and optional API URL        |
+| `BITBUCKET_WEBHOOK_SECRET`, `BITBUCKET_API_TOKEN`         | For Bitbucket        | Signing secret on receiver; scoped API token on worker       |
+| `SENTRY_DSN`                                              | Optional             | Error tracking                                               |
+| `POSTGRES_PASSWORD`, `WEBHOOK_PORT`, `DASHBOARD_PORT`     | For Docker           | Local database credentials and exposed ports                 |
 
 No single AI provider is mandatory, but at least one key is required for real
 reviews. Jobs cannot be dispatched without the Trigger.dev secret. GitHub App

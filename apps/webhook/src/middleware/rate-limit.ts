@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono'
 import type { AppEnv } from './verify-signature.js'
 import { z } from 'zod'
 import postgres from 'postgres'
+import { createReviewJob } from '../lib/review-job.js'
 
 type Plan = 'free' | 'team' | 'business'
 const PLAN_LIMITS: Record<Plan, number> = { free: 50, team: 500, business: Infinity }
@@ -92,6 +93,13 @@ export async function rateLimit(c: Context<AppEnv>, next: Next) {
   const sql = postgres(c.env.DATABASE_URL, { max: 1 })
   const monthKey = new Date().toISOString().slice(0, 7)
   const reservationKey = JSON.stringify([orgKey, externalRepoId, reviewNumber, headSha])
+  let job
+  try {
+    job = createReviewJob(provider, JSON.parse(c.get('rawBody')), reservationKey)
+  } catch {
+    await sql.end()
+    return c.json({ error: 'Invalid webhook payload' }, 400)
+  }
   try {
     const outcome = await sql.begin(async (transaction) => {
       // postgres 3.4's Omit-based TransactionSql type drops its runtime call signature.
@@ -132,22 +140,28 @@ export async function rateLimit(c: Context<AppEnv>, next: Next) {
       const [existing] = await tx<{ status: string }[]>`
       SELECT status FROM review_reservations WHERE reservation_key = ${reservationKey}
     `
-      if (existing?.status === 'reserved') return 'accepted' as const
       // Trigger retains terminal run idempotency keys. Redelivery must not reserve a
       // fresh slot for a completed/skipped/failed commit that it will not run again.
-      if (existing) return 'finished' as const
-      if (plan === 'free' && counter.used >= limit) return 'blocked' as const
-      await tx`
+      if (existing && existing.status !== 'reserved') return 'finished' as const
+      if (!existing && plan === 'free' && counter.used >= limit) return 'blocked' as const
+      if (!existing) {
+        await tx`
       INSERT INTO review_reservations (reservation_key, org_key, month_key, status)
       VALUES (${reservationKey}, ${orgKey}, ${monthKey}, 'reserved')
       ON CONFLICT (reservation_key) DO NOTHING
     `
-      await tx`
+        await tx`
       UPDATE rate_limits SET used = used + 1,
         overage_used = CASE WHEN plan = 'team' THEN GREATEST(0, used + 1 - 500) ELSE 0 END,
         updated_at = NOW()
       WHERE org_key = ${orgKey} AND month_key = ${monthKey}
     `
+      }
+      await tx`
+        INSERT INTO review_dispatch_outbox (id, task_id, payload, options)
+        VALUES (${reservationKey}, ${job.taskId}, ${JSON.stringify(job.payload)}::jsonb, ${JSON.stringify(job.options)}::jsonb)
+        ON CONFLICT (id) DO NOTHING
+      `
       return 'accepted' as const
     })
     if (outcome === 'inactive')

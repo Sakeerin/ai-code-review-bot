@@ -190,9 +190,9 @@ export class GitHubClient {
       }
 
       return null
-    } catch {
-      // File not found — this is expected for repos without .reviewbot.yml
-      return null
+    } catch (error) {
+      if ((error as { status?: number }).status === 404) return null
+      throw error
     }
   }
 }

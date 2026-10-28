@@ -1,8 +1,10 @@
-"use client"
+'use client'
 
-import { useState } from "react"
+import { useState } from 'react'
+import { useOrganizationId } from './organization-context'
 
 export function ManageSubscriptionButton() {
+  const orgId = useOrganizationId()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -10,12 +12,15 @@ export function ManageSubscriptionButton() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch("/api/stripe/portal", { method: "POST" })
+      const res = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: orgId ? { 'X-Organization-Id': orgId } : {},
+      })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? "Something went wrong")
+      if (!res.ok) throw new Error(data.error ?? 'Something went wrong')
       window.location.href = data.url
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
+      setError(err instanceof Error ? err.message : 'Something went wrong')
       setLoading(false)
     }
   }
@@ -27,7 +32,7 @@ export function ManageSubscriptionButton() {
         disabled={loading}
         className="inline-flex h-10 items-center justify-center rounded-md border border-border px-4 text-sm font-medium hover:bg-accent transition-colors disabled:opacity-50 disabled:pointer-events-none"
       >
-        {loading ? "Opening portal…" : "Manage Subscription"}
+        {loading ? 'Opening portal…' : 'Manage Subscription'}
       </button>
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
     </div>

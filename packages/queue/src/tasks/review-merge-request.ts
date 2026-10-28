@@ -9,7 +9,13 @@ import {
   reviewIsCompleted,
   reviewMarker,
 } from '../lib/review-state.js'
-import { parseReviewBotConfig, reviewDiff, getModifiedLines, ReviewError, isFileIgnored } from '@repo/ai'
+import {
+  parseReviewBotConfig,
+  reviewDiff,
+  getModifiedLines,
+  ReviewError,
+  isFileIgnored,
+} from '@repo/ai'
 import {
   saveReviewAndNotify,
   saveFailedReview,
@@ -35,7 +41,9 @@ const MAX_ATTEMPTS = 3
 export const reviewMergeRequestTask = task({
   id: 'review-merge-request',
   queue: { concurrencyLimit: 1 },
-  onFailure: async (payload: ReviewMergeRequestPayload) => { await releaseReviewReservation(createDb(undefined, 2), payload.reservationKey) },
+  onFailure: async ({ payload }: { payload: ReviewMergeRequestPayload }) => {
+    await releaseReviewReservation(createDb(undefined, 2), payload.reservationKey)
+  },
   retry: {
     maxAttempts: MAX_ATTEMPTS,
     factor: 2,
@@ -61,7 +69,8 @@ export const reviewMergeRequestTask = task({
       projectWebUrl: payload.projectWebUrl,
       rootNamespace: payload.rootNamespace,
     })
-    if (repoRecord.isActive === false) return skipReview(db, payload.reservationKey, 'Repository is inactive')
+    if (repoRecord.isActive === false)
+      return skipReview(db, payload.reservationKey, 'Repository is inactive')
     const gitlabClient = new GitLabClient({
       baseUrl: process.env.GITLAB_API_URL ?? 'https://gitlab.com/api/v4',
       token: process.env.GITLAB_TOKEN!,

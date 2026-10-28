@@ -5,6 +5,7 @@ import { organizations, stripeWebhookEvents } from '@repo/db/schema'
 import { eq } from '@repo/db'
 import { createStripe } from '@/lib/stripe'
 import { stripeObjectId, subscriptionPlan } from '@/lib/billing'
+import { enforceFreeRepositoryLimit } from '@repo/db/repository-policy'
 
 export async function POST(req: Request) {
   const stripe = createStripe()
@@ -84,6 +85,7 @@ export async function POST(req: Request) {
           updatedAt: new Date(),
         })
         .where(eq(organizations.id, org.id))
+      if (plan === 'free') await enforceFreeRepositoryLimit(tx, org.id)
     })
   } catch (error) {
     console.error('Stripe event processing failed:', error)

@@ -8,18 +8,18 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "bun --env-file=../../.env x trigger.dev@3.3.17 dev",
-    "deploy": "bun --env-file=../../.env x trigger.dev@3.3.17 deploy",
+    "dev": "bun --env-file=../../.env x trigger.dev@4.8.1 dev",
+    "deploy": "bun --env-file=../../.env x trigger.dev@4.8.1 deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trigger.dev/sdk": "^3.3.0",
+    "@trigger.dev/sdk": "^4.8.1",
     "@repo/db": "workspace:*",
     "@repo/github": "workspace:*",
     "@repo/gitlab": "workspace:*",
     "@repo/bitbucket": "workspace:*",
     "@repo/ai": "workspace:*",
-    "stripe": "^22.0.1"
+    "stripe": "22.0.1"
   },
   "devDependencies": {
     "typescript": "^5.8.0"

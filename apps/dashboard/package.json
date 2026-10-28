@@ -18,17 +18,17 @@
     "@sentry/core": "^8.54.0",
     "@sentry/nextjs": "^8.54.0",
     "@tailwindcss/postcss": "^4.2.2",
-    "better-auth": "^1.6.1",
+    "better-auth": "^1.7.14",
     "clsx": "^2.1.1",
     "lucide-react": "^1.8.0",
-    "next": "^15.3.0",
+    "next": "^15.5.28",
     "postcss": "^8.5.9",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "stripe": "^22.0.1",
+    "stripe": "22.0.1",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.2",
-    "zod": "^4.4.1"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "26.4.0",

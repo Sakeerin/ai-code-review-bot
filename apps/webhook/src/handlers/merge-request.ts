@@ -5,7 +5,7 @@ import { z } from 'zod'
 
 const REVIEWABLE_ACTIONS = ['open', 'reopen', 'update']
 
-const MergeRequestPayloadSchema = z.object({
+export const MergeRequestPayloadSchema = z.object({
   object_kind: z.string(),
   project: z.object({
     id: z.number(),

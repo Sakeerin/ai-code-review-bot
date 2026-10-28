@@ -6,7 +6,7 @@ Third-party services may have separate fees and terms.
 
 ## 1. Install and configure
 
-Install Git, Node.js 22+, and Bun 1.3.0, then clone and install:
+Install Git, Node.js 22+, and Bun 1.4.4, then clone and install:
 
 ```bash
 git clone https://github.com/Sakeerin/ai-code-review-bot.git
@@ -63,12 +63,31 @@ credentials, run `bun test tests` instead.
    access and pull requests/issues write access, and subscribe it to pull request
    events. The dashboard also needs OAuth credentials to verify installation ownership.
 4. For GitLab, set `GITLAB_TOKEN` and optionally `GITLAB_API_URL`. For Bitbucket,
-   configure `BITBUCKET_USERNAME` and `BITBUCKET_APP_PASSWORD` using the supported
-   authentication flow in your Bitbucket account.
+   set `BITBUCKET_API_TOKEN` in the worker environment. Use a scoped Bitbucket API
+   token with repository read and pull request read/write permissions. The client
+   sends it as a Bearer token; retired App Passwords are not supported. See
+   [Atlassian's API token documentation](https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/).
 5. Give the workers `DATABASE_URL`, the AI provider keys and model settings, and
    the Git provider credentials they need. Configure the same database as the
    webhook receiver/dashboard. Cloud workers cannot use a Compose-only hostname
    such as `postgres` or your machine's `localhost`.
+
+When upgrading an existing deployment, run `bun run db:migrate` before updating
+the webhook receiver, then deploy the queue with `bun run --cwd packages/queue deploy`.
+Migration 0008 adds the durable dispatch outbox and keeps only the oldest active
+repository enabled for each Free organization. Administrators can change that choice
+on the Repositories page. Paid organizations keep their active repositories.
+
+Deploy the `retry-review-dispatch` scheduled task (every minute) together with the
+review workers. It retries pending jobs with the original idempotency key after a
+Trigger outage or lost acknowledgement. Monitor undelivered rows and their age in
+`review_dispatch_outbox`; quota stays reserved until the job finishes or fails.
+
+Paid subscription changes use a signed, ten-minute invoice preview and Stripe pending
+updates. Access changes only after Stripe confirms payment through the webhook.
+An existing monthly meter is retained when moving from Team to Business so delayed
+Team overage events can still be billed; Business reviews do not emit new usage events.
+Configure `BETTER_AUTH_SECRET` on the dashboard to sign these previews.
 
 Run the queue's development runner with credentials from the root `.env`:
 

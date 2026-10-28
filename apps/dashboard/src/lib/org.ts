@@ -1,4 +1,4 @@
-import { db } from "@repo/db/client"
+import { db } from '@repo/db/client'
 import {
   organizations,
   repositories,
@@ -6,34 +6,66 @@ import {
   userOrganizations,
   rateLimits,
   type Organization,
-} from "@repo/db/schema"
-import { and, count, eq, gte, sql } from "@repo/db"
+} from '@repo/db/schema'
+import { and, count, eq, gte, sql } from '@repo/db'
+import { headers } from 'next/headers'
+import { getGitHubAccessToken, verifyInstallationOwner } from './github-installation'
+import { cache } from 'react'
 
 // ─── Plan metadata ────────────────────────────────────────────────
 // Defined in ./plans (no server-only imports) and re-exported here so
 // existing server-side callers keep working. Client components must
 // import from ./plans directly.
 
-import { PLAN_LIMITS, type Plan } from "./plans"
+import { PLAN_LIMITS, type Plan } from './plans'
 
-export { PLAN_LIMITS, OVERAGE_PRICE_PER_PR } from "./plans"
-export type { Plan, BillingInterval } from "./plans"
+export { PLAN_LIMITS, OVERAGE_PRICE_PER_PR } from './plans'
+export type { Plan, BillingInterval } from './plans'
 
 // ─── User → Org lookup ───────────────────────────────────────────
 
-/**
- * Returns the first organization the given user belongs to, or null.
- * Uses the userOrganizations join table created during GitHub App installation.
- */
-export async function getUserOrg(userId: string): Promise<Organization | null> {
+export const getUserOrganizations = cache(async (userId: string): Promise<Organization[]> => {
   const rows = await db
-    .select({ org: organizations })
+    .select({ org: organizations, role: userOrganizations.role })
     .from(userOrganizations)
     .innerJoin(organizations, eq(userOrganizations.orgId, organizations.id))
     .where(eq(userOrganizations.userId, userId))
-    .limit(1)
+    .orderBy(organizations.createdAt, organizations.id)
 
-  return rows[0]?.org ?? null
+  if (!rows.length) return []
+  const requestHeaders = await headers()
+  const accessToken = await getGitHubAccessToken(userId, requestHeaders)
+  if (!accessToken) return []
+  const allowed: Organization[] = []
+  for (const { org, role } of rows) {
+    // Dashboard installations are managed by GitHub administrators. Never trust
+    // the installation-time membership after GitHub access has been revoked.
+    if (
+      role === 'owner' &&
+      org.githubInstallationId &&
+      (await verifyInstallationOwner(accessToken, Number(org.githubInstallationId)))
+    )
+      allowed.push(org)
+  }
+  return allowed
+})
+
+export async function getUserOrg(userId: string, orgId?: string): Promise<Organization | null> {
+  const requestHeaders = await headers()
+  const selected =
+    orgId ??
+    requestHeaders.get('x-organization-id') ??
+    requestHeaders
+      .get('cookie')
+      ?.split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('active_org='))
+      ?.slice(11)
+  const organizations = await getUserOrganizations(userId)
+  // An invalid selection must not silently send mutations to a different tenant.
+  return selected
+    ? (organizations.find((org) => org.id === selected) ?? null)
+    : (organizations[0] ?? null)
 }
 
 // ─── Usage ───────────────────────────────────────────────────────
@@ -58,7 +90,7 @@ export async function getMonthlyReviewCount(orgId: string): Promise<number> {
       and(
         eq(repositories.orgId, orgId),
         gte(reviews.createdAt, monthStart()),
-        eq(reviews.status, "completed"),
+        eq(reviews.status, 'completed'),
       ),
     )
 
@@ -70,16 +102,26 @@ export async function getMonthlyReviewCount(orgId: string): Promise<number> {
  * overageCount > 0 only when on a paid plan that allows overage.
  */
 export async function getUsageSummary(org: Organization) {
-  const plan = (org.plan ?? "free") as Plan
+  const plan = (org.plan ?? 'free') as Plan
   const meta = PLAN_LIMITS[plan]
   const limit = meta.prs
-  const orgKey = org.githubInstallationId ? `gh:${org.githubInstallationId}`
-    : org.gitlabNamespace ? `gl:${org.gitlabNamespace}` : org.bitbucketWorkspace ? `bb:${org.bitbucketWorkspace}` : null
-  const counter = orgKey ? await db.query.rateLimits.findFirst({ where: and(
-    eq(rateLimits.orgKey, orgKey), eq(rateLimits.monthKey, new Date().toISOString().slice(0, 7)),
-  ) }) : null
+  const orgKey = org.githubInstallationId
+    ? `gh:${org.githubInstallationId}`
+    : org.gitlabNamespace
+      ? `gl:${org.gitlabNamespace}`
+      : org.bitbucketWorkspace
+        ? `bb:${org.bitbucketWorkspace}`
+        : null
+  const counter = orgKey
+    ? await db.query.rateLimits.findFirst({
+        where: and(
+          eq(rateLimits.orgKey, orgKey),
+          eq(rateLimits.monthKey, new Date().toISOString().slice(0, 7)),
+        ),
+      })
+    : null
   // Slots include queued work; failures/no-op reviews release their reservation.
-  const used = counter?.used ?? await getMonthlyReviewCount(org.id)
+  const used = counter?.used ?? (await getMonthlyReviewCount(org.id))
   const overageCount = limit !== Infinity && used > limit ? used - limit : 0
   const withinQuota = Math.min(used, limit === Infinity ? used : limit)
   const percent = limit === Infinity ? 0 : Math.min(100, Math.round((withinQuota / limit) * 100))
@@ -114,9 +156,9 @@ function dayKey(date: Date) {
 }
 
 function formatChartLabel(key: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
   }).format(new Date(`${key}T00:00:00.000Z`))
 }
 
@@ -155,7 +197,7 @@ export async function getDashboardAnalytics(orgId: string): Promise<DashboardAna
       .where(
         and(
           eq(repositories.orgId, orgId),
-          eq(reviews.status, "completed"),
+          eq(reviews.status, 'completed'),
           gte(reviews.createdAt, since),
         ),
       )
@@ -176,7 +218,7 @@ export async function getDashboardAnalytics(orgId: string): Promise<DashboardAna
       .where(
         and(
           eq(repositories.orgId, orgId),
-          eq(reviews.status, "completed"),
+          eq(reviews.status, 'completed'),
           gte(reviews.createdAt, since),
         ),
       ),
@@ -206,8 +248,8 @@ export async function getDashboardAnalytics(orgId: string): Promise<DashboardAna
   }
 
   const dateKeys = buildDateSeries(30)
-  const githubRepos = repoRows.find((r) => r.provider === "github")?.cnt ?? 0
-  const gitlabRepos = repoRows.find((r) => r.provider === "gitlab")?.cnt ?? 0
+  const githubRepos = repoRows.find((r) => r.provider === 'github')?.cnt ?? 0
+  const gitlabRepos = repoRows.find((r) => r.provider === 'gitlab')?.cnt ?? 0
   const scoreCount = Number(totals?.scoreCount ?? 0)
 
   return {
@@ -215,9 +257,7 @@ export async function getDashboardAnalytics(orgId: string): Promise<DashboardAna
       reviews: Number(totals?.totalReviews ?? 0),
       tokens: Number(totals?.totalTokens ?? 0),
       bugsFound: Number(totals?.totalBugs ?? 0),
-      averageScore: scoreCount > 0
-        ? Math.round(Number(totals?.scoreSum ?? 0) / scoreCount)
-        : null,
+      averageScore: scoreCount > 0 ? Math.round(Number(totals?.scoreSum ?? 0) / scoreCount) : null,
       githubRepos: Number(githubRepos),
       gitlabRepos: Number(gitlabRepos),
     },

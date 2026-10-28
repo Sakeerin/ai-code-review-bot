@@ -57,6 +57,13 @@
       "when": 1793074691805,
       "tag": "0007_glossy_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793160842113,
+      "tag": "0008_grey_namorita",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@ import type { AppEnv } from '../middleware/verify-signature.js'
 import { triggerTask } from '../lib/trigger.js'
 import { z } from 'zod'
 
-const BitbucketPRPayloadSchema = z.object({
+export const BitbucketPRPayloadSchema = z.object({
   pullrequest: z.object({
     id: z.number(),
     title: z.string(),
@@ -58,8 +58,6 @@ export async function handleBitbucketPR(c: Context<AppEnv>): Promise<Response> {
     prAuthor: actor.nickname,
     headCommitHash: pr.source.commit.hash,
     prUrl: pr.links.html.href,
-    bitbucketUsername: c.env.BITBUCKET_USERNAME,
-    bitbucketAppPassword: c.env.BITBUCKET_APP_PASSWORD,
   }
 
   console.log(`Bitbucket PR event: ${repository.full_name}#${pr.id} "${pr.title}"`)

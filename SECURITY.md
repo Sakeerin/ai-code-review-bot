@@ -16,6 +16,18 @@ a bug bounty or a guaranteed response time.
 
 ## Supported code
 
+CI runs `bun run audit:security` against the complete lockfile, including development
+dependencies, and rejects high or critical advisories and registry failures. Lower
+severity advisories remain visible in the job output and require periodic review.
+The current remaining advisories concern transitive OpenTelemetry instrumentation,
+esbuild's development server, and uuid's caller-supplied buffers; passing this gate
+does not mean the dependency tree has no advisories.
+
+Root dependency overrides keep patched PostCSS, Rollup, Undici, busboy, MSAL,
+WebSocket and Zod versions in older dependency trees. Recheck these overrides when
+upgrading their parents; test both app builds, webhook bundling and VS Code packaging
+before changing them. The AI package uses the current Zod API directly.
+
 Security fixes target the latest code on `main`. There are no maintained release
 branches or promised backports. Operators should review changes and migrations
 before upgrading their deployment.

@@ -8,11 +8,13 @@ import {
   reviews,
   and,
   eq,
+  gte,
   sql,
 } from '@repo/db'
 import type { ReviewResult, ReviewTokenUsage } from '@repo/ai'
 import { type SlackReviewNotificationPayload } from './slack.js'
 import { drainNotificationOutbox } from './notification-outbox.js'
+import { canActivateRepository } from '@repo/db/repository-policy'
 
 export interface FailedReviewInput {
   db: Database
@@ -164,7 +166,7 @@ export async function saveReviewAndNotify(
         and(
           eq(repositories.orgId, orgId),
           eq(reviews.status, 'completed'),
-          sql`${reviews.completedAt} >= ${monthStart}`,
+          gte(reviews.completedAt, monthStart),
         ),
       )
     if (orgRecord.plan === 'team' && orgRecord.stripeCustomerId && usage.total > 500) {
@@ -226,23 +228,26 @@ export async function upsertGitLabRepo(
     .onConflictDoUpdate({ target: organizations.gitlabNamespace, set: { name: orgName } })
     .returning()
 
-  const [repo] = await db
-    .insert(repositories)
-    .values({
-      orgId: org.id,
-      provider: 'gitlab',
-      gitlabProjectId: String(projectId),
-      fullName: projectPath,
-      webUrl: projectWebUrl ?? projectPath,
-      isActive: true,
-    })
-    .onConflictDoUpdate({
-      target: repositories.gitlabProjectId,
-      set: { orgId: org.id, fullName: projectPath, webUrl: projectWebUrl ?? projectPath },
-    })
-    .returning()
+  return db.transaction(async (tx) => {
+    const active = await canActivateRepository(tx, org.id)
+    const [repo] = await tx
+      .insert(repositories)
+      .values({
+        orgId: org.id,
+        provider: 'gitlab',
+        gitlabProjectId: String(projectId),
+        fullName: projectPath,
+        webUrl: projectWebUrl ?? projectPath,
+        isActive: active,
+      })
+      .onConflictDoUpdate({
+        target: repositories.gitlabProjectId,
+        set: { orgId: org.id, fullName: projectPath, webUrl: projectWebUrl ?? projectPath },
+      })
+      .returning()
 
-  return repo
+    return repo
+  })
 }
 
 /** Format a review comment body with severity badge and optional suggestion. */

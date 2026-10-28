@@ -56,10 +56,22 @@ export async function POST(req: Request) {
       status: 'all',
       limit: 100,
     })
-    if (
-      subscriptions.data.some((sub) => !['canceled', 'incomplete_expired'].includes(sub.status))
-    ) {
-      return { error: 'Manage your existing subscription through the billing portal', status: 409 }
+    const subscription = subscriptions.data.find(
+      (sub) => !['canceled', 'incomplete_expired'].includes(sub.status),
+    )
+    if (subscription) {
+      if (!['active', 'trialing'].includes(subscription.status)) {
+        const portal = await stripe.billingPortal.sessions.create({
+          customer: customerId,
+          return_url: `${appUrl}/dashboard/billing`,
+        })
+        return { url: portal.url }
+      }
+      return {
+        error: 'Preview and confirm your subscription change',
+        changeRequired: true,
+        status: 409,
+      }
     }
     // Recover an already-created session if its response/DB commit was lost.
     const open = await stripe.checkout.sessions.list({

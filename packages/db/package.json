@@ -9,7 +9,9 @@
     "./schema": "./src/schema.ts",
     "./client": "./src/client.ts",
     "./auth": "./src/auth.ts",
-    "./webhook-url": "./src/webhook-url.ts"
+    "./webhook-url": "./src/webhook-url.ts",
+    "./review-dispatch": "./src/review-dispatch.ts",
+    "./repository-policy": "./src/repository-policy.ts"
   },
   "scripts": {
     "generate": "bun --env-file=../../.env run drizzle-kit generate",
@@ -19,8 +21,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "better-auth": "^1.6.1",
-    "drizzle-orm": "^0.40.0",
+    "better-auth": "^1.7.14",
+    "drizzle-orm": "^0.45.4",
     "postgres": "^3.4.0"
   },
   "devDependencies": {

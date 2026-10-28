@@ -7,6 +7,24 @@
 
 ## การอัปเดตด้านสิทธิ์และความทนทานของงานรีวิว
 
+Migration `0008` เพิ่ม outbox สำหรับส่งงานเข้า queue และจำกัดแผน Free ให้เปิดใช้
+repository ได้หนึ่งรายการ รวมถึง installation เดิม หลัง migrate ให้ deploy schedule
+`retry-review-dispatch` พร้อม worker งานที่ส่งไม่สำเร็จจะเก็บการจองโควตาไว้และส่งซ้ำ
+ด้วย idempotency key เดิม ระบบตรวจสิทธิ์ผู้ดูแล GitHub ซ้ำเมื่อเข้าใช้องค์กร และเลือก
+installation ที่ต้องการได้จากช่อง Organization บน dashboard
+
+ใช้ Bun **1.4.4** ขึ้นไปสำหรับ lockfile ชุดใหม่ โดย CI และ Docker ใช้ 1.4.4
+ตรวจ dependency ด้วย `bun run audit:security` ซึ่งจะไม่ผ่านเมื่อพบระดับ high/critical
+
+สำหรับ Bitbucket ให้ตั้ง `BITBUCKET_API_TOKEN` บน worker โดยใช้ scoped API token
+ที่มีสิทธิ์อ่าน repository และอ่าน/เขียน pull request งานใหม่จะไม่แนบ API credentials
+ลงใน payload และไม่ใช้ App Password ที่เลิกให้บริการแล้ว
+
+แพ็กเกจที่ชำระเงินแล้วเปลี่ยนแผนหรือรอบบิลได้ผ่านการดูยอดปรับและยืนยัน ใบเสนอราคา
+หมดอายุในสิบนาที ระบบรอ Stripe ยืนยันการชำระเงินก่อนให้สิทธิ์ใหม่ผ่าน webhook
+meter รายเดือนเดิมจะคงอยู่เพื่อรับ usage ของ Team ที่ส่งล่าช้า ส่วนรีวิวของ Business
+จะไม่ส่ง meter event ใหม่ ลูกค้าที่ถูกลดเป็น Free ยังเข้า Portal เพื่อแก้การชำระเงินได้
+
 ก่อนเริ่ม dashboard, webhook และ queue เวอร์ชันนี้ ให้รัน `bun install` และ
 `bun run db:migrate` กับฐานข้อมูลที่ต้องการใช้งาน Migration `0006` เพิ่มตัวระบุองค์กร
 ของ GitLab/Bitbucket และตารางเก็บผล AI สำหรับทำงานต่อเมื่อ task ต้อง retry
@@ -24,6 +42,12 @@
 
 รัน `bun run test` เพื่อตรวจ regression tests ซึ่งใช้ PostgreSQL ในหน่วยความจำ (PGlite)
 โดยไม่เชื่อมฐานข้อมูลจริงหรือเรียกบริการภายนอก และรัน `bun run typecheck` เพื่อตรวจ TypeScript
+
+รัน `bun run test:postgres` เพื่อตรวจไดรเวอร์ PostgreSQL จริง การล็อกเมื่อมีงานพร้อมกัน
+lease ของ dispatch และการนับ usage รายเดือน โดยตั้ง `POSTGRES_TEST_URL` ให้ชี้ไปยัง
+PostgreSQL สำหรับทดสอบด้วย role ที่มีสิทธิ์ `CREATEDB` ชุดทดสอบจะสร้างและลบฐานข้อมูล
+ของตัวเอง และไม่ใช้ `DATABASE_URL` แทนหากไม่ได้ตั้งค่า CI รันชุดนี้บน PostgreSQL 16
+โดยปิดการส่งข้อมูลไป Stripe และ Slack
 
 ### การอัปเดต billing, quota และ notification
 
@@ -84,7 +108,7 @@
 
 | เครื่องมือ              | เวอร์ชัน                  | ใช้ทำอะไร                                                         |
 | ----------------------- | ------------------------- | ----------------------------------------------------------------- |
-| [Bun](https://bun.sh)   | 1.3.0 สำหรับตรวจเหมือน CI | runtime + package manager หลัก (กำหนดใน `packageManager`)         |
+| [Bun](https://bun.sh)   | 1.4.4 สำหรับตรวจเหมือน CI | runtime + package manager หลัก (กำหนดใน `packageManager`)         |
 | Node.js                 | ≥ 22.0.0                  | บาง tool ต้องใช้ (กำหนดใน `engines`)                              |
 | Wrangler CLI            | เวอร์ชันใน lockfile       | ใช้ผ่าน script ของ `apps/webhook` เมื่อต้องการ Cloudflare Workers |
 | Git                     | —                         | version control                                                   |
@@ -197,23 +221,23 @@ bun run --cwd apps/dashboard dev
 
 ### กลุ่ม Webhook / Queue (root `.env`)
 
-| ตัวแปร                                                                       | จำเป็น | คำอธิบาย                                                                  |
-| ---------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                               | ✅     | connection string ของ PostgreSQL                                          |
-| `OPENAI_API_KEY`                                                             | ✅†    | OpenAI key (`sk-...`) — provider หลัก (default)                           |
-| `ANTHROPIC_API_KEY`                                                          | ⬜†    | Claude API key (`sk-ant-...`) — fallback                                  |
-| `GEMINI_API_KEY`                                                             | ⬜†    | Google Gemini key — fallback (รองรับ `GOOGLE_GENERATIVE_AI_API_KEY` ด้วย) |
-| `AI_PROVIDER_ORDER`                                                          | ⬜     | ลำดับ provider (default `openai,anthropic,gemini`)                        |
-| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `GEMINI_MODEL`                          | ⬜     | override ชื่อ model แต่ละเจ้า                                             |
-| `TRIGGER_SECRET_KEY`                                                         | ✅\*   | Trigger.dev secret (`tr_...`) — จำเป็นถ้าจะให้ job รันบน cloud            |
-| `TRIGGER_PROJECT_ID`                                                         | ✅\*   | project reference ของตัวเอง สำหรับ script dev/deploy ของ queue            |
-| `GITHUB_APP_ID`                                                              | ✅\*\* | App ID (ตัวเลข)                                                           |
-| `GITHUB_APP_PRIVATE_KEY`                                                     | ✅\*\* | PEM key แบบ single-line (`\n`)                                            |
-| `GITHUB_WEBHOOK_SECRET`                                                      | ✅\*\* | secret สำหรับ verify HMAC                                                 |
-| `GITLAB_TOKEN` / `GITLAB_WEBHOOK_SECRET` / `GITLAB_API_URL`                  | ⬜     | สำหรับรองรับ GitLab                                                       |
-| `BITBUCKET_WEBHOOK_SECRET` / `BITBUCKET_USERNAME` / `BITBUCKET_APP_PASSWORD` | ⬜     | สำหรับรองรับ Bitbucket                                                    |
-| `SENTRY_DSN`                                                                 | ⬜     | error tracking                                                            |
-| `POSTGRES_PASSWORD` / `WEBHOOK_PORT` / `DASHBOARD_PORT`                      | ⬜     | สำหรับ Docker self-hosted                                                 |
+| ตัวแปร                                                      | จำเป็น | คำอธิบาย                                                                  |
+| ----------------------------------------------------------- | ------ | ------------------------------------------------------------------------- |
+| `DATABASE_URL`                                              | ✅     | connection string ของ PostgreSQL                                          |
+| `OPENAI_API_KEY`                                            | ✅†    | OpenAI key (`sk-...`) — provider หลัก (default)                           |
+| `ANTHROPIC_API_KEY`                                         | ⬜†    | Claude API key (`sk-ant-...`) — fallback                                  |
+| `GEMINI_API_KEY`                                            | ⬜†    | Google Gemini key — fallback (รองรับ `GOOGLE_GENERATIVE_AI_API_KEY` ด้วย) |
+| `AI_PROVIDER_ORDER`                                         | ⬜     | ลำดับ provider (default `openai,anthropic,gemini`)                        |
+| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `GEMINI_MODEL`         | ⬜     | override ชื่อ model แต่ละเจ้า                                             |
+| `TRIGGER_SECRET_KEY`                                        | ✅\*   | Trigger.dev secret (`tr_...`) — จำเป็นถ้าจะให้ job รันบน cloud            |
+| `TRIGGER_PROJECT_ID`                                        | ✅\*   | project reference ของตัวเอง สำหรับ script dev/deploy ของ queue            |
+| `GITHUB_APP_ID`                                             | ✅\*\* | App ID (ตัวเลข)                                                           |
+| `GITHUB_APP_PRIVATE_KEY`                                    | ✅\*\* | PEM key แบบ single-line (`\n`)                                            |
+| `GITHUB_WEBHOOK_SECRET`                                     | ✅\*\* | secret สำหรับ verify HMAC                                                 |
+| `GITLAB_TOKEN` / `GITLAB_WEBHOOK_SECRET` / `GITLAB_API_URL` | ⬜     | สำหรับรองรับ GitLab                                                       |
+| `BITBUCKET_WEBHOOK_SECRET` / `BITBUCKET_API_TOKEN`          | ⬜     | Signing secret บน webhook และ API token บน worker สำหรับ Bitbucket        |
+| `SENTRY_DSN`                                                | ⬜     | error tracking                                                            |
+| `POSTGRES_PASSWORD` / `WEBHOOK_PORT` / `DASHBOARD_PORT`     | ⬜     | สำหรับ Docker self-hosted                                                 |
 
 <sub>\* ถ้าไม่ตั้ง Trigger.dev job จะ trigger ไม่ได้ &nbsp; \*\* จำเป็นเมื่อต้องการรองรับ GitHub จริง &nbsp; † ต้องมี AI provider **อย่างน้อย 1 เจ้า** (ตั้งหลายเจ้าได้เพื่อ fallback)</sub>
 
@@ -541,7 +565,7 @@ docker compose up -d --build
 
 | อาการ                                  | สาเหตุที่พบบ่อย                                                                     | วิธีแก้                                                                                 |
 | -------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `bun install` ล้มเหลว                  | Bun เวอร์ชันต่ำกว่า 1.3.0                                                           | `bun upgrade`                                                                           |
+| `bun install` ล้มเหลว                  | Bun เวอร์ชันต่ำกว่า 1.4.4                                                           | `bun upgrade`                                                                           |
 | webhook คืน 401                        | signature ไม่ตรง — `GITHUB_WEBHOOK_SECRET` ไม่ตรงกับที่ตั้งใน GitHub App            | ตั้ง secret ให้ตรงทั้งสองฝั่ง                                                           |
 | webhook คืน 429                        | ติด rate limit (free plan 50/เดือน)                                                 | upgrade plan หรือเช็คตาราง `rateLimits`                                                 |
 | AI review ไม่ทำงาน                     | ไม่ได้ตั้ง AI key เลย / key ผิด / โควตาเต็มทุกเจ้า                                  | เช็ค `GET /api/health/ai` ว่ามี provider พร้อมใช้งาน (default หลักคือ `OPENAI_API_KEY`) |

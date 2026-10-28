@@ -20,10 +20,14 @@ const DIAGNOSTIC_SOURCE = 'AI Review Bot'
 /** Maps severity to VS Code DiagnosticSeverity */
 function toDiagnosticSeverity(severity: ReviewComment['severity']): vscode.DiagnosticSeverity {
   switch (severity) {
-    case 'bug': return vscode.DiagnosticSeverity.Error
-    case 'suggestion': return vscode.DiagnosticSeverity.Warning
-    case 'nitpick': return vscode.DiagnosticSeverity.Information
-    case 'praise': return vscode.DiagnosticSeverity.Hint
+    case 'bug':
+      return vscode.DiagnosticSeverity.Error
+    case 'suggestion':
+      return vscode.DiagnosticSeverity.Warning
+    case 'nitpick':
+      return vscode.DiagnosticSeverity.Information
+    case 'praise':
+      return vscode.DiagnosticSeverity.Hint
   }
 }
 
@@ -64,24 +68,14 @@ async function buildFileDiff(document: vscode.TextDocument): Promise<string | nu
 
   try {
     const filePath = document.uri.fsPath
-    const stdout = await readGitDiff(filePath, workspaceFolder.uri.fsPath)
-    if (stdout.trim()) return stdout
-
-    // File is new (not tracked) — generate a synthetic diff from scratch
-    const content = document.getText()
-    const lines = content.split('\n')
-    const addedLines = lines.map((l) => `+${l}`).join('\n')
-    return `--- /dev/null\n+++ b/${vscode.workspace.asRelativePath(document.uri)}\n@@ -0,0 +1,${lines.length} @@\n${addedLines}`
-  } catch {
-    return null
+    return await readGitDiff(filePath, workspaceFolder.uri.fsPath, document.getText())
+  } catch (error) {
+    throw new Error(`Unable to read changes: ${(error as Error).message}`)
   }
 }
 
 /** Build a synthetic diff from selected text */
-function buildSelectionDiff(
-  document: vscode.TextDocument,
-  selection: vscode.Selection,
-): string {
+function buildSelectionDiff(document: vscode.TextDocument, selection: vscode.Selection): string {
   const text = document.getText(selection)
   const relPath = vscode.workspace.asRelativePath(document.uri)
   const startLine = selection.start.line + 1
@@ -116,7 +110,9 @@ export function activate(context: vscode.ExtensionContext) {
         try {
           const diff = await buildFileDiff(document)
           if (!diff) {
-            vscode.window.showInformationMessage('No changes detected to review (git diff is empty).')
+            vscode.window.showInformationMessage(
+              'No changes detected to review (git diff is empty).',
+            )
             return
           }
 
@@ -136,37 +132,38 @@ export function activate(context: vscode.ExtensionContext) {
 
   // ── Review Selection Command ─────────────────────────────────────
 
-  const reviewSelectionCmd = vscode.commands.registerCommand('reviewbot.reviewSelection', async () => {
-    const editor = vscode.window.activeTextEditor
-    if (!editor || editor.selection.isEmpty) {
-      vscode.window.showWarningMessage('Select code to review first.')
-      return
-    }
+  const reviewSelectionCmd = vscode.commands.registerCommand(
+    'reviewbot.reviewSelection',
+    async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor || editor.selection.isEmpty) {
+        vscode.window.showWarningMessage('Select code to review first.')
+        return
+      }
 
-    const config = vscode.workspace.getConfiguration('reviewbot')
-    const document = editor.document
-    const diff = buildSelectionDiff(document, editor.selection)
+      const config = vscode.workspace.getConfiguration('reviewbot')
+      const document = editor.document
+      const diff = buildSelectionDiff(document, editor.selection)
 
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'AI Review Bot: Reviewing selection...',
-        cancellable: false,
-      },
-      async () => {
-        try {
-          const result = await callReviewApi(diff, config)
-          applyDiagnostics(diagnosticCollection, document, result)
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'AI Review Bot: Reviewing selection...',
+          cancellable: false,
+        },
+        async () => {
+          try {
+            const result = await callReviewApi(diff, config)
+            applyDiagnostics(diagnosticCollection, document, result)
 
-          vscode.window.showInformationMessage(
-            `Review complete: Score ${result.score}/100`,
-          )
-        } catch (err) {
-          vscode.window.showErrorMessage(`AI Review Bot: ${(err as Error).message}`)
-        }
-      },
-    )
-  })
+            vscode.window.showInformationMessage(`Review complete: Score ${result.score}/100`)
+          } catch (err) {
+            vscode.window.showErrorMessage(`AI Review Bot: ${(err as Error).message}`)
+          }
+        },
+      )
+    },
+  )
 
   // ── Clear Diagnostics Command ────────────────────────────────────
 
@@ -199,7 +196,13 @@ export function activate(context: vscode.ExtensionContext) {
     }
   })
 
-  context.subscriptions.push(reviewFileCmd, reviewSelectionCmd, clearCmd, configureCmd, onSaveListener)
+  context.subscriptions.push(
+    reviewFileCmd,
+    reviewSelectionCmd,
+    clearCmd,
+    configureCmd,
+    onSaveListener,
+  )
 }
 
 export function deactivate() {}

@@ -9,6 +9,7 @@ dist/
 .next/
 .turbo/
 out/
+*.vsix
 
 # Environment
 .env*

@@ -1,4 +1,21 @@
 import { createAppOctokit } from '@repo/github'
+import { auth } from '@repo/db/auth'
+import { db } from '@repo/db/client'
+import { account } from '@repo/db/schema'
+import { and, eq } from '@repo/db'
+
+/** Better Auth 1.7 selects accounts by their internal ID, scoped to the session user. */
+export async function getGitHubAccessToken(userId: string, requestHeaders: Headers) {
+  const github = await db.query.account.findFirst({
+    where: and(eq(account.userId, userId), eq(account.providerId, 'github')),
+  })
+  if (!github) return null
+  const { accessToken } = await auth.api.getAccessToken({
+    headers: requestHeaders,
+    body: { accountId: github.id },
+  })
+  return accessToken ?? null
+}
 
 /** Verify administrative access, not merely access to one repository in an org. */
 export async function verifyInstallationOwner(accessToken: string, installationId: number) {

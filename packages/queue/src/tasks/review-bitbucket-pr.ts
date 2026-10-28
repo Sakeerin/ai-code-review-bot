@@ -9,7 +9,13 @@ import {
   reviewIsCompleted,
   reviewMarker,
 } from '../lib/review-state.js'
-import { parseReviewBotConfig, reviewDiff, getModifiedLines, ReviewError, isFileIgnored } from '@repo/ai'
+import {
+  parseReviewBotConfig,
+  reviewDiff,
+  getModifiedLines,
+  ReviewError,
+  isFileIgnored,
+} from '@repo/ai'
 import {
   saveReviewAndNotify,
   saveFailedReview,
@@ -26,8 +32,9 @@ export interface ReviewBitbucketPRPayload {
   prAuthor: string
   headCommitHash: string
   prUrl: string
-  bitbucketUsername: string
-  bitbucketAppPassword: string
+  /** Only accepted for already queued jobs; new jobs read worker credentials. */
+  bitbucketUsername?: string
+  bitbucketAppPassword?: string
   reservationKey?: string
 }
 
@@ -36,7 +43,9 @@ const MAX_ATTEMPTS = 3
 export const reviewBitbucketPRTask = task({
   id: 'review-bitbucket-pull-request',
   queue: { concurrencyLimit: 1 },
-  onFailure: async (payload: ReviewBitbucketPRPayload) => { await releaseReviewReservation(createDb(undefined, 2), payload.reservationKey) },
+  onFailure: async ({ payload }: { payload: ReviewBitbucketPRPayload }) => {
+    await releaseReviewReservation(createDb(undefined, 2), payload.reservationKey)
+  },
   retry: {
     maxAttempts: MAX_ATTEMPTS,
     factor: 2,
@@ -64,13 +73,15 @@ export const reviewBitbucketPRTask = task({
 
     const db = createDb(undefined, 2)
     const repoRecord = await upsertBitbucketRepo(db, workspace, repoFullName)
-    if (repoRecord.isActive === false) return skipReview(db, payload.reservationKey, 'Repository is inactive')
+    if (repoRecord.isActive === false)
+      return skipReview(db, payload.reservationKey, 'Repository is inactive')
     const reviewKey = makeReviewKey('bitbucket', repoRecord.id, prId, headCommitHash)
     if (await reviewIsCompleted(db, reviewKey))
       return skipReview(db, payload.reservationKey, 'Commit already reviewed')
     const bbClient = new BitbucketClient({
-      username: bitbucketUsername,
-      appPassword: bitbucketAppPassword,
+      apiToken: process.env.BITBUCKET_API_TOKEN,
+      username: process.env.BITBUCKET_USERNAME || bitbucketUsername,
+      appPassword: process.env.BITBUCKET_APP_PASSWORD || bitbucketAppPassword,
     })
 
     try {

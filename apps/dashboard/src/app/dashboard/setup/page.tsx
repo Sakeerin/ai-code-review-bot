@@ -4,7 +4,7 @@ import { organizations, userOrganizations } from '@repo/db/schema'
 import { eq, and } from '@repo/db'
 import { headers } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
-import { verifyInstallationOwner } from '@/lib/github-installation'
+import { getGitHubAccessToken, verifyInstallationOwner } from '@/lib/github-installation'
 
 export default async function GithubAppSetupPage({
   searchParams,
@@ -31,10 +31,8 @@ export default async function GithubAppSetupPage({
     redirect('/')
   }
 
-  const { accessToken } = await auth.api.getAccessToken({
-    headers: requestHeaders,
-    body: { providerId: 'github' },
-  })
+  const accessToken = await getGitHubAccessToken(session.user.id, requestHeaders)
+  if (!accessToken) notFound()
   const installation = await verifyInstallationOwner(accessToken, Number(installationId))
   if (!installation) notFound()
 

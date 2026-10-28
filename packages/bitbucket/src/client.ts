@@ -5,13 +5,18 @@ export class BitbucketClient {
   private readonly authHeader: string
 
   constructor(config: BitbucketClientConfig) {
-    this.baseUrl = config.baseUrl ?? 'https://api.bitbucket.org/2.0'
-    const encoded = Buffer.from(`${config.username}:${config.appPassword}`).toString('base64')
-    this.authHeader = `Basic ${encoded}`
+    this.baseUrl = (config.baseUrl ?? 'https://api.bitbucket.org/2.0').replace(/\/$/, '')
+    if (config.apiToken) this.authHeader = `Bearer ${config.apiToken}`
+    else if (config.username && config.appPassword)
+      this.authHeader = `Basic ${Buffer.from(`${config.username}:${config.appPassword}`).toString('base64')}`
+    else throw new Error('Bitbucket API token is not configured')
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const url = `${this.baseUrl}${path}`
+    const url = new URL(path.startsWith('/') ? `${this.baseUrl}${path}` : path)
+    const base = new URL(this.baseUrl)
+    if (url.origin !== base.origin || !url.pathname.startsWith(`${base.pathname}/`))
+      throw new Error('Invalid Bitbucket pagination URL')
     const res = await fetch(url, {
       ...options,
       headers: {
@@ -60,12 +65,22 @@ export class BitbucketClient {
     }
     interface DiffstatResponse {
       values: DiffstatEntry[]
+      next?: string
     }
 
-    const data = await this.request<DiffstatResponse>(
-      `/repositories/${workspace}/${repoSlug}/pullrequests/${prId}/diffstat`,
-    )
-    return data.values.map((f) => ({
+    const entries: DiffstatEntry[] = []
+    let next: string | undefined =
+      `/repositories/${workspace}/${repoSlug}/pullrequests/${prId}/diffstat`
+    const visited = new Set<string>()
+    while (next) {
+      if (visited.has(next) || visited.size >= 100)
+        throw new Error('Bitbucket pagination limit exceeded')
+      visited.add(next)
+      const data: DiffstatResponse = await this.request<DiffstatResponse>(next)
+      entries.push(...data.values)
+      next = data.next
+    }
+    return entries.map((f) => ({
       path: f.new?.path ?? f.old?.path ?? '',
       newPath: f.new?.path ?? '',
       oldPath: f.old?.path ?? '',
@@ -81,14 +96,14 @@ export class BitbucketClient {
     filePath: string,
     commitHash: string,
   ): Promise<string | null> {
-    try {
-      const url = `${this.baseUrl}/repositories/${workspace}/${repoSlug}/src/${commitHash}/${filePath}`
-      const res = await fetch(url, { headers: { Authorization: this.authHeader } })
-      if (!res.ok) return null
-      return res.text()
-    } catch {
-      return null
-    }
+    const url = `${this.baseUrl}/repositories/${workspace}/${repoSlug}/src/${commitHash}/${filePath}`
+    const res = await fetch(url, { headers: { Authorization: this.authHeader } })
+    if (res.status === 404) return null
+    if (!res.ok)
+      throw Object.assign(new Error(`Bitbucket file download failed (${res.status})`), {
+        status: res.status,
+      })
+    return res.text()
   }
 
   async createPRComment(

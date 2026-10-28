@@ -1,6 +1,8 @@
 export interface BitbucketClientConfig {
-  username: string
-  appPassword: string
+  apiToken?: string
+  /** Compatibility for existing integrations using email + API token with Basic auth. */
+  username?: string
+  appPassword?: string
   baseUrl?: string
 }
 

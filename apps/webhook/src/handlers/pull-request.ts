@@ -6,7 +6,7 @@ import { z } from 'zod'
 /** PR actions we want to trigger a review for */
 const REVIEWABLE_ACTIONS = ['opened', 'synchronize', 'reopened']
 
-const PullRequestPayloadSchema = z.object({
+export const PullRequestPayloadSchema = z.object({
   action: z.string(),
   pull_request: z.object({
     number: z.number(),

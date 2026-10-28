@@ -8,30 +8,43 @@ export const CustomRuleSchema = z.object({
   message: z.string(),
 })
 
-export const LimitsSchema = z.object({
-  max_file_size_lines: z.number().int().min(1).max(2000).default(500),
-  max_files_per_pr: z.number().int().min(1).max(50).default(20),
-}).default({})
+export const LimitsSchema = z
+  .object({
+    max_file_size_lines: z.number().int().min(1).max(2000).default(500),
+    max_files_per_pr: z.number().int().min(1).max(50).default(20),
+  })
+  .default({ max_file_size_lines: 500, max_files_per_pr: 20 })
 
-export const ReviewBotConfigSchema = z.object({
-  version: z.number().optional(),
-  profile: z.string().default('typescript'),
-  language: z.string().default('en'),
-  rules: z.array(CustomRuleSchema).default([]),
-  ignore: z.array(z.string()).default([]),
-  limits: LimitsSchema,
-}).default({})
+export const ReviewBotConfigSchema = z
+  .object({
+    version: z.number().optional(),
+    profile: z.string().default('typescript'),
+    language: z.string().default('en'),
+    rules: z.array(CustomRuleSchema).default([]),
+    ignore: z.array(z.string()).default([]),
+    limits: LimitsSchema,
+  })
+  .default({
+    profile: 'typescript',
+    language: 'en',
+    rules: [],
+    ignore: [],
+    limits: { max_file_size_lines: 500, max_files_per_pr: 20 },
+  })
 
 export type ReviewBotConfig = z.infer<typeof ReviewBotConfigSchema>
 export type CustomRule = z.infer<typeof CustomRuleSchema>
 
 export function isFileIgnored(filename: string, patterns: string[]): boolean {
-  return patterns.length > 0 && picomatch.isMatch(filename.replace(/\\/g, '/').replace(/^\.\//, ''), patterns, { dot: true })
+  return (
+    patterns.length > 0 &&
+    picomatch.isMatch(filename.replace(/\\/g, '/').replace(/^\.\//, ''), patterns, { dot: true })
+  )
 }
 
 export function parseReviewBotConfig(ymlString: string | null): ReviewBotConfig {
   if (!ymlString) return ReviewBotConfigSchema.parse({})
-  
+
   try {
     const raw = parse(ymlString)
     return ReviewBotConfigSchema.parse(raw || {})

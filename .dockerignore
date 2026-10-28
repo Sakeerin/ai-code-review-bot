@@ -5,9 +5,16 @@
 **/node_modules
 .bun-cache
 **/.next
+**/.source
+**/*.vsix
 **/.turbo
 **/.wrangler
 **/.dev.vars
+**/.dev.vars*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
 **/dist
 **/out
 **/coverage

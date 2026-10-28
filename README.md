@@ -28,7 +28,7 @@ improvements are welcome in English or Thai.
 
 ## Try the contributor workflow
 
-You need Git, Node.js 22+, and Bun 1.3.0. These checks use synthetic data and an
+You need Git, Node.js 22+, and Bun 1.4.4. These checks use synthetic data and an
 in-memory PostgreSQL database; no API keys or external services are required.
 
 ```bash

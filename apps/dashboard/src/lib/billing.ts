@@ -61,3 +61,36 @@ export async function checkoutLineItems(
   }
   return items
 }
+
+/** Preserve the monthly meter so delayed Team usage can still be invoiced after an upgrade. */
+export function subscriptionChangeItems(
+  subscription: Stripe.Subscription,
+  basePrice: string,
+  team: boolean,
+) {
+  const baseIds = [
+    process.env.STRIPE_TEAM_PRICE_ID,
+    process.env.STRIPE_TEAM_ANNUAL_PRICE_ID,
+    process.env.STRIPE_BUSINESS_PRICE_ID,
+    process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID,
+  ]
+  const bases = subscription.items.data.filter((item) => baseIds.includes(item.price.id))
+  if (
+    bases.length !== 1 ||
+    subscription.items.has_more ||
+    subscription.items.data.some(
+      (item) =>
+        !baseIds.includes(item.price.id) && item.price.id !== process.env.STRIPE_OVERAGE_PRICE_ID,
+    )
+  )
+    throw new Error('Subscription has unsupported items; contact support before changing it')
+  const items: Array<{ id?: string; price: string; quantity?: number }> = [
+    { id: bases[0].id, price: basePrice, quantity: 1 },
+  ]
+  if (
+    team &&
+    !subscription.items.data.some((item) => item.price.id === process.env.STRIPE_OVERAGE_PRICE_ID)
+  )
+    items.push({ price: process.env.STRIPE_OVERAGE_PRICE_ID! })
+  return items
+}

@@ -9,7 +9,7 @@ privately through [SECURITY.md](SECURITY.md).
 
 ## Start without service credentials
 
-Install Git, Node.js 22 or newer, and Bun 1.3.0 (the version used in CI). Fork the
+Install Git, Node.js 22 or newer, and Bun 1.4.4 (the version used in CI). Fork the
 repository, clone your fork, and create a branch for your change:
 
 ```bash

@@ -36,6 +36,17 @@ test('Git diff treats shell metacharacters in a filename as literal data', async
     expect(diff).toContain('-before')
     expect(diff).toContain('+after')
     expect(diff).toContain(filename)
+    // The buffer, including edits not yet saved, is authoritative.
+    const unsaved = await readGitDiff(join(directory, filename), directory, 'unsaved\n')
+    expect(unsaved).toContain('-before')
+    expect(unsaved).toContain('+unsaved')
+    expect(unsaved).not.toContain('+after')
+    expect(await readGitDiff(join(directory, filename), directory, 'before\n')).toBe('')
+    const untracked = await readGitDiff(join(directory, 'new.ts'), directory, 'new file\n')
+    expect(untracked).toContain('--- /dev/null')
+    expect(untracked).toContain('+new file')
+    await writeFile(join(directory, '.gitignore'), 'secret.env\n')
+    expect(await readGitDiff(join(directory, 'secret.env'), directory, 'secret=value\n')).toBe('')
   } finally {
     // Only remove the isolated fixture created by this test.
     await rm(directory, { recursive: true, force: true })

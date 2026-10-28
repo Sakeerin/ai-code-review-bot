@@ -106,12 +106,13 @@ export class GitLabClient {
       )
 
       if (data.encoding !== 'base64') {
-        return null
+        throw new Error('Unsupported repository file encoding')
       }
 
       return Buffer.from(data.content, 'base64').toString('utf-8')
-    } catch {
-      return null
+    } catch (error) {
+      if ((error as { status?: number }).status === 404) return null
+      throw error
     }
   }
 

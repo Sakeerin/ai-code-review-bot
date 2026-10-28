@@ -9,7 +9,13 @@ import {
   reviewIsCompleted,
   reviewMarker,
 } from '../lib/review-state.js'
-import { parseReviewBotConfig, reviewDiff, getModifiedLines, ReviewError, isFileIgnored } from '@repo/ai'
+import {
+  parseReviewBotConfig,
+  reviewDiff,
+  getModifiedLines,
+  ReviewError,
+  isFileIgnored,
+} from '@repo/ai'
 import {
   saveReviewAndNotify,
   saveFailedReview,
@@ -33,7 +39,9 @@ const MAX_ATTEMPTS = 3
 export const reviewPRTask = task({
   id: 'review-pull-request',
   queue: { concurrencyLimit: 1 },
-  onFailure: async (payload: ReviewPRPayload) => { await releaseReviewReservation(createDb(undefined, 2), payload.reservationKey) },
+  onFailure: async ({ payload }: { payload: ReviewPRPayload }) => {
+    await releaseReviewReservation(createDb(undefined, 2), payload.reservationKey)
+  },
   retry: {
     maxAttempts: MAX_ATTEMPTS,
     factor: 2,
@@ -47,7 +55,8 @@ export const reviewPRTask = task({
     const reviewUrl = `https://github.com/${repoFullName}/pull/${prNumber}`
     const db = createDb(undefined, 2)
     const repoRecord = await findGitHubRepo(db, installationId, repoFullName, payload.githubRepoId)
-    if (repoRecord.isActive === false) return skipReview(db, payload.reservationKey, 'Repository is inactive')
+    if (repoRecord.isActive === false)
+      return skipReview(db, payload.reservationKey, 'Repository is inactive')
     const reviewKey = makeReviewKey('github', repoRecord.id, prNumber, payload.headSha)
     if (await reviewIsCompleted(db, reviewKey))
       return skipReview(db, payload.reservationKey, 'Commit already reviewed')

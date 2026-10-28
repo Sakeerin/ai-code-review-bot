@@ -1,22 +1,23 @@
-import { auth } from "@repo/db/auth";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-import Link from "next/link";
-import { LogoutButton } from "@/components/logout-button";
+import { auth } from '@repo/db/auth'
+import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { LogoutButton } from '@/components/logout-button'
+import { OrganizationSwitcher } from '@/components/organization-switcher'
+import { getUserOrg, getUserOrganizations } from '@/lib/org'
+import { OrganizationProvider } from '@/components/organization-context'
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const requestHeaders = await headers();
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const requestHeaders = await headers()
   const session = await auth.api.getSession({
     headers: requestHeaders,
-  });
+  })
 
   if (!session?.user) {
-    redirect("/");
+    redirect('/')
   }
+  const organizations = await getUserOrganizations(session.user.id)
+  const selected = await getUserOrg(session.user.id)
 
   return (
     <div className="flex min-h-screen">
@@ -26,20 +27,39 @@ export default async function DashboardLayout({
           <h2 className="font-bold text-lg">AI Code Review</h2>
           <p className="text-sm text-muted-foreground">{session.user.email}</p>
         </div>
+        <OrganizationSwitcher
+          organizations={organizations.map(({ id, name }) => ({ id, name }))}
+          selected={selected?.id}
+        />
         <nav className="flex-1 p-4 space-y-2">
-          <Link href="/dashboard" className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium">
+          <Link
+            href="/dashboard"
+            className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium"
+          >
             Overview
           </Link>
-          <Link href="/dashboard/repos" className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium">
+          <Link
+            href="/dashboard/repos"
+            className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium"
+          >
             Repositories
           </Link>
-          <Link href="/dashboard/history" className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium">
+          <Link
+            href="/dashboard/history"
+            className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium"
+          >
             Review History
           </Link>
-          <Link href="/dashboard/billing" className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium">
+          <Link
+            href="/dashboard/billing"
+            className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium"
+          >
             Billing & Usage
           </Link>
-          <Link href="/dashboard/settings" className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium">
+          <Link
+            href="/dashboard/settings"
+            className="block px-3 py-2 text-sm rounded-md hover:bg-accent hover:text-accent-foreground font-medium"
+          >
             Settings
           </Link>
         </nav>
@@ -47,11 +67,11 @@ export default async function DashboardLayout({
           <LogoutButton />
         </div>
       </aside>
-      
+
       {/* Main Content */}
       <main className="flex-1 p-8">
-        {children}
+        <OrganizationProvider orgId={selected?.id}>{children}</OrganizationProvider>
       </main>
     </div>
-  );
+  )
 }

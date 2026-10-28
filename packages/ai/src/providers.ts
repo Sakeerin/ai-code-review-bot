@@ -1,5 +1,5 @@
 import { generateObject } from 'ai'
-import type { LanguageModelV1 } from 'ai'
+import type { LanguageModel } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
@@ -23,7 +23,7 @@ export class ReviewError extends Error {
 /** A concrete model instance that is ready to call, plus a human-readable name. */
 export interface ProviderCandidate {
   name: string
-  model: LanguageModelV1
+  model: LanguageModel
 }
 
 /**
@@ -179,8 +179,8 @@ export async function generateObjectWithFallback<T>(opts: {
       return {
         object,
         usage: {
-          promptTokens: usage.promptTokens,
-          completionTokens: usage.completionTokens,
+          promptTokens: usage.inputTokens ?? 0,
+          completionTokens: usage.outputTokens ?? 0,
         },
         provider: provider.name,
       }
