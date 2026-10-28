@@ -104,8 +104,7 @@ suite against PostgreSQL 16; Stripe and Slack delivery stay disabled.
 > deployment, and troubleshooting for developers running or extending the project.
 >
 > Related documentation: [README](README.md), [service setup](SETUP.md) (Thai),
-> [phase summary](PHASE-SUMMARY.md) (Thai), and
-> [implementation plan](implementation-plan.md).
+> [self-hosting guide](docs/SELF_HOSTING.md), and [local guide](RUN-LOCAL.md) (Thai).
 
 ## Contents
 
@@ -177,8 +176,7 @@ ai-code-review-bot/
 │   ├── gitlab/           GitLab API client
 │   ├── bitbucket/        Bitbucket API client
 │   ├── db/               Drizzle schema/client and Better Auth configuration
-│   ├── queue/            Trigger.dev review and scheduled tasks
-│   └── ui/               Shared UI package
+│   └── queue/            Trigger.dev review and scheduled tasks
 ├── Dockerfile.webhook / Dockerfile.dashboard / docker-compose.yml
 ├── turbo.json            Build, development, and validation pipelines
 ├── .env.example          Example environment variables
@@ -186,7 +184,7 @@ ai-code-review-bot/
 ```
 
 Shared workspace names include `@repo/ai`, `@repo/github`, `@repo/gitlab`,
-`@repo/bitbucket`, `@repo/db`, `@repo/queue`, and `@repo/ui`.
+`@repo/bitbucket`, `@repo/db`, and `@repo/queue`.
 
 ## 3. Quick start
 

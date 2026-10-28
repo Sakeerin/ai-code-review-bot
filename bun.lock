@@ -187,13 +187,6 @@
         "typescript": "^5.8.0",
       },
     },
-    "packages/ui": {
-      "name": "@repo/ui",
-      "version": "0.0.1",
-      "devDependencies": {
-        "typescript": "^5.8.0",
-      },
-    },
   },
   "overrides": {
     "@azure/msal-node": "^7.1.0",
@@ -762,8 +755,6 @@
     "@repo/mcp-server": ["@repo/mcp-server@workspace:apps/mcp-server"],
 
     "@repo/queue": ["@repo/queue@workspace:packages/queue"],
-
-    "@repo/ui": ["@repo/ui@workspace:packages/ui"],
 
     "@repo/webhook": ["@repo/webhook@workspace:apps/webhook"],
 

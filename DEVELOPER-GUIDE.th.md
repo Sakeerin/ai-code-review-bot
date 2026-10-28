@@ -81,7 +81,7 @@ PostgreSQL สำหรับทดสอบด้วย role ที่มีส
 > คู่มือสำหรับนักพัฒนาที่ต้องการนำโปรเจคนี้ไปรัน พัฒนาต่อ หรือ deploy เอง
 > ครอบคลุมตั้งแต่การเตรียมเครื่อง การตั้งค่า การรัน local การทดสอบ flow ไปจนถึง deploy และแก้ปัญหา
 >
-> 📎 เอกสารที่เกี่ยวข้อง: [README.md](README.md) · [SETUP.md](SETUP.md) (ตั้งค่า service ภายนอกอย่างละเอียด) · [PHASE-SUMMARY.md](PHASE-SUMMARY.md) (สรุปฟีเจอร์) · [implementation-plan.md](implementation-plan.md)
+> 📎 เอกสารที่เกี่ยวข้อง: [README.md](README.md) · [SETUP.md](SETUP.md) (ตั้งค่า service ภายนอกอย่างละเอียด) · [คู่มือ self-host](docs/SELF_HOSTING.md) · [คู่มือรัน local](RUN-LOCAL.md)
 
 ---
 
@@ -156,15 +156,14 @@ ai-review-bot/
 │   ├── gitlab/           → GitLab API client
 │   ├── bitbucket/        → Bitbucket API client [V2]
 │   ├── db/               → Drizzle schema + client + Better Auth config
-│   ├── queue/            → Trigger.dev tasks (review jobs)
-│   └── ui/               → shared shadcn/ui components
+│   └── queue/            → Trigger.dev tasks (review jobs)
 ├── Dockerfile.webhook / Dockerfile.dashboard / docker-compose.yml
 ├── turbo.json            → pipeline config (build/dev/typecheck/lint)
 ├── .env.example          → ตัวอย่าง env ทั้งหมด
 └── package.json          → root scripts + workspaces
 ```
 
-**Workspace package names:** `@repo/ai`, `@repo/github`, `@repo/gitlab`, `@repo/bitbucket`, `@repo/db`, `@repo/queue`, `@repo/ui`
+**Workspace package names:** `@repo/ai`, `@repo/github`, `@repo/gitlab`, `@repo/bitbucket`, `@repo/db`, `@repo/queue`
 
 ---
 

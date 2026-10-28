@@ -12,7 +12,6 @@ COPY packages/db/package.json ./packages/db/
 COPY packages/github/package.json ./packages/github/
 COPY packages/gitlab/package.json ./packages/gitlab/
 COPY packages/queue/package.json ./packages/queue/
-COPY packages/ui/package.json ./packages/ui/
 RUN bun install --frozen-lockfile
 
 FROM deps AS runtime

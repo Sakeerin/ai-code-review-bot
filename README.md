@@ -117,7 +117,6 @@ GitHub / GitLab / Bitbucket webhook
 | `packages/github`, `packages/gitlab`, `packages/bitbucket` | Provider clients                                                        |
 | `packages/db`                                              | PostgreSQL schema, migrations, and auth                                 |
 | `packages/queue`                                           | Trigger.dev tasks and durable notification delivery                     |
-| `packages/ui`                                              | Shared UI package                                                       |
 
 ## Development commands
 
